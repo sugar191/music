@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>アーティストランキング</title>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+
+        .artist-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            padding: 10px;
+        }
+
+        .artist-card {
+            border: 1px solid #ccc;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+
+        .artist-card h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        th, td {
+            border: 1px solid #ccc;
+            padding: 6px 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #eee;
+            text-align: center;
+        }
+
+        .others-table-container table {
+            width: auto;           /* テーブル自体は親幅いっぱい */
+            border-collapse: collapse;
+        }
+
+        /* スマホ向け（画面幅が768px未満の場合） */
+        @media screen and (max-width: 767px) {
+            .artist-grid {
+                grid-template-columns: 1fr; /* 1列に */
+            }
+        }
+    </style>
+</head>
+<body>
+    <a href="{% url 'song_list' %}">点数をつける</a>
+    <h3>ランキング</h3>
+    <div class="artist-grid">
+        {% for entry in main_artists %}
+        <div class="artist-card">
+            <h2>
+                <a href="{% url 'song_list' %}?q={{ entry.artist.name }}">{{ entry.artist.name }}</a>
+                （平均点：{{ entry.avg_score|floatformat:2 }}）
+            </h2>
+            <table>
+                <thead>
+                    <tr><th>楽曲名</th><th>点数</th></tr>
+                </thead>
+                <tbody>
+                    {% for song in entry.top_songs %}
+                    <tr>
+                        <td>
+                            <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                                    {{ song.title }}
+                            </a>
+                        </td>
+                        <td style="text-align: right;">{{ song.user_score }}点</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="others-table-container">
+        <h3>その他</h3>
+        <table border="1" cellspacing="0" cellpadding="5">
+            <thead>
+                <tr><th>アーティスト名</th><th>楽曲名</th><th>点数</th></tr>
+            </thead>
+            <tbody>
+                {% for song in others_songs %}
+                <tr>
+                    <td><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></td>
+                    <td>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                            {{ song.title }}
+                        </a>
+                    </td>
+                    <td>{{ song.user_score }}点</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

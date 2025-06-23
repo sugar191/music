@@ -1,0 +1,202 @@
+[
+{
+  "model": "songs.artist",
+  "pk": 1,
+  "fields": {
+    "name": "164"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 2,
+  "fields": {
+    "name": "19"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 3,
+  "fields": {
+    "name": "25éûÅAÉiÉCÉgÉRÅ[ÉhÇ≈ÅB"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 4,
+  "fields": {
+    "name": "40ábP"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 5,
+  "fields": {
+    "name": "9mm Parabellum Bullet"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 6,
+  "fields": {
+    "name": "a flood of circle"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 7,
+  "fields": {
+    "name": "ACIDMAN"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 8,
+  "fields": {
+    "name": "Ado"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 9,
+  "fields": {
+    "name": "AdoÇ∆GooDrugÇ∆çïÇ§Ç≥Ç¨Ç∆é„é_ê´Ç∆ãgîT"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 10,
+  "fields": {
+    "name": "AdoÇ∆ãgîTÇ∆é„é_ê´"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 11,
+  "fields": {
+    "name": "AI"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 12,
+  "fields": {
+    "name": "aiko"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 13,
+  "fields": {
+    "name": "AKB48"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 14,
+  "fields": {
+    "name": "AKINO"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 15,
+  "fields": {
+    "name": "Alexandros"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 16,
+  "fields": {
+    "name": "AliA"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 17,
+  "fields": {
+    "name": "andymori"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 18,
+  "fields": {
+    "name": "Aqua Timez"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 19,
+  "fields": {
+    "name": "ASACO"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 20,
+  "fields": {
+    "name": "ASIAN KUNG-FU GENERATION"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 21,
+  "fields": {
+    "name": "Ayase"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 22,
+  "fields": {
+    "name": "B'z"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 23,
+  "fields": {
+    "name": "back number"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 24,
+  "fields": {
+    "name": "BEGIN"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 25,
+  "fields": {
+    "name": "BENNIE K"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 26,
+  "fields": {
+    "name": "BLUE ENCOUNT"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 27,
+  "fields": {
+    "name": "BoA"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 28,
+  "fields": {
+    "name": "BOYSTYLE"
+  }
+},
+{
+  "model": "songs.artist",
+  "pk": 29,
+  "fields": {
+    "name": 
