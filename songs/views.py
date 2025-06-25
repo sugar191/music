@@ -45,7 +45,7 @@ def artist_ranking_view(request):
             user_score=Subquery(user_rating_subquery, output_field=IntegerField()),
         ).filter(user_score__isnull=False)
 
-        songs_with_user_score = qs.order_by("-user_score")[: top_n + 1]
+        songs_with_user_score = qs.order_by("-user_score")[:top_n]
         avg_score = songs_with_user_score.aggregate(avg=Avg("user_score"))["avg"] or 0
         count_songs = songs_with_user_score.count()
 
