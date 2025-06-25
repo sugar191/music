@@ -195,8 +195,7 @@ select option {
 .artist-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0.5rem 0;
-    padding-top: 5vh;
+    gap: 0.5rem;
 }
 
 .artist-card {

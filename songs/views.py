@@ -12,12 +12,18 @@ from django.db import IntegrityError
 
 
 @login_required
-def artist_ranking_view(request, top_n=5):
+def artist_ranking_view(request):
+    ranking_options = [5, 7, 10]
     selected_user_id = request.GET.get("user")
     if selected_user_id:
         selected_user = get_object_or_404(User, id=selected_user_id)
     else:
         selected_user = request.user
+
+    try:
+        top_n = int(request.GET.get("top_n", 5))
+    except ValueError:
+        top_n = 5  # 不正な値だった場合のフォールバック
 
     rated_artist_ids = (
         Artist.objects.filter(songs__ratings__user=selected_user)
@@ -42,7 +48,7 @@ def artist_ranking_view(request, top_n=5):
         avg_score = songs_with_user_score.aggregate(avg=Avg("user_score"))["avg"] or 0
         count_songs = songs_with_user_score.count()
 
-        if count_songs < 5:
+        if count_songs < top_n:
             others_songs.extend(list(songs_with_user_score[:10]))
         else:
             main_artists.append(
@@ -65,6 +71,7 @@ def artist_ranking_view(request, top_n=5):
             "main_artists": main_artists,
             "others_songs": others_songs,
             "top_n": top_n,
+            "ranking_options": ranking_options,
             "selected_user": selected_user,
             "all_users": User.objects.all().order_by("username"),
         },

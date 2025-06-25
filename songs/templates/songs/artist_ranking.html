@@ -15,6 +15,14 @@
             </select>
         </form>
     </div>
+    <form method="get" style="margin-top: 3vh">
+        <label for="top_n">上位曲数：</label>
+        <select name="top_n" id="top_n" onchange="this.form.submit()">
+            {% for n in ranking_options %}
+                <option value="{{ n }}" {% if top_n == n %}selected{% endif %}>TOP{{ n }}</option>
+            {% endfor %}
+        </select>
+    </form>
     <div class="artist-grid">
         {% for entry in main_artists %}
         <div class="artist-card">
@@ -46,8 +54,8 @@
                 {% for song in others_songs %}
                 <tr>
                     <td>
-                        <div><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></div>
                         <div><a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a></div>
+                        <div><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></div>
                     </td>
                     <td class="score-cell">{{ song.user_score }}</td>
                 </tr>
