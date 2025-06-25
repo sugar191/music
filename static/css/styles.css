@@ -167,10 +167,6 @@ select option {
     box-sizing: border-box;
 }
 
-.top-bar select {
-    width: 100%;
-}
-
 .bottom-bar {
     position: fixed;
     bottom: 0;
@@ -193,6 +189,7 @@ select option {
 }
 
 .artist-grid {
+    padding-top: 4vh; /* 上下に余白確保（ヘッダー・フッターの分） */
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 0.5rem;

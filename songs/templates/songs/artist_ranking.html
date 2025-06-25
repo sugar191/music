@@ -6,6 +6,11 @@
 <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
         <form method="get" action="{% url 'artist_ranking' %}">
+            <select name="top_n" id="top_n" onchange="this.form.submit()">
+                {% for n in ranking_options %}
+                    <option value="{{ n }}" {% if top_n == n %}selected{% endif %}>TOP{{ n }}</option>
+                {% endfor %}
+            </select>
             <select name="user" id="user" onchange="this.form.submit()">
                 {% for user in all_users %}
                     <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
@@ -15,14 +20,6 @@
             </select>
         </form>
     </div>
-    <form method="get" style="margin-top: 3vh">
-        <label for="top_n">上位曲数：</label>
-        <select name="top_n" id="top_n" onchange="this.form.submit()">
-            {% for n in ranking_options %}
-                <option value="{{ n }}" {% if top_n == n %}selected{% endif %}>TOP{{ n }}</option>
-            {% endfor %}
-        </select>
-    </form>
     <div class="artist-grid">
         {% for entry in main_artists %}
         <div class="artist-card">

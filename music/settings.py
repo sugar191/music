@@ -137,3 +137,6 @@ STATICFILES_DIRS = [
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000
+
+LOGIN_REDIRECT_URL = "/ranking"  # ログイン後のリダイレクト先URL
+LOGOUT_REDIRECT_URL = "/login"  # ログアウト後のリダイレクト先

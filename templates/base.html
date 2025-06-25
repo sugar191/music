@@ -12,7 +12,7 @@
     <body>
         <!-- ヘッダー -->
         <header class="site-header">
-            <div class="header-title"><a href="/">楽曲ランキング</a></div>
+            <div class="header-title">楽曲ランキング</div>
             <div class="header-auth">
                 {% if user.is_authenticated %}
                     <form method="post" action="{% url 'logout' %}">

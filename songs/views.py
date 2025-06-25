@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.db import IntegrityError
+from django.contrib.auth.forms import UserCreationForm
 
 
 @login_required
@@ -44,7 +45,7 @@ def artist_ranking_view(request):
             user_score=Subquery(user_rating_subquery, output_field=IntegerField()),
         ).filter(user_score__isnull=False)
 
-        songs_with_user_score = qs.order_by("-user_score")[:top_n]
+        songs_with_user_score = qs.order_by("-user_score")[: top_n + 1]
         avg_score = songs_with_user_score.aggregate(avg=Avg("user_score"))["avg"] or 0
         count_songs = songs_with_user_score.count()
 
@@ -227,3 +228,14 @@ def bulk_add_view(request):
         return redirect("song_list")  # ✅ 適宜変更可
 
     return render(request, "songs/bulk_add.html", {"artists": Artist.objects.all()})
+
+
+def signup_view(request):
+    if request.method == "POST":
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect("login")  # ユーザー作成後ログイン画面へ
+    else:
+        form = UserCreationForm()
+    return render(request, "registration/signup.html", {"form": form})
