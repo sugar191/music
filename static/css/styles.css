@@ -1,0 +1,245 @@
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: sans-serif;
+}
+
+a {
+    text-decoration: none;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 5px;
+    border: 1px solid #ccc;
+    text-align: left;
+}
+
+thead {
+    background-color: lightblue;
+    font-weight: bold;
+}
+
+tbody tr:nth-child(even) {
+    background-color: whitesmoke;
+}
+
+tbody tr:hover {
+    background-color: gainsboro;
+}
+
+select {
+    max-width: 100%;       /* セレクトボックス自体の最大幅 */
+    white-space: nowrap;   /* 折り返さず */
+    overflow: hidden;      /* はみ出した部分を隠す */
+    text-overflow: ellipsis; /* ... を表示 */
+}
+
+select option {
+    white-space: nowrap;   /* 選択肢も折り返さない */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    display: block;        /* 省略表示を効かせるために block にする */
+}
+
+/* 自作クラス */
+/* ヘッダー */
+.site-header {
+    position: fixed;                /* 位置の固定化 */
+    top: env(safe-area-inset-top);  /* 位置の固定化：上のノッチ対策 */
+    left: 0;                        /* 位置の固定化：画面一番左 */
+    overflow: hidden;               /* はみ出し防止 */
+    width: 100vw;
+    height: 5vh;                    /* フォールバック（古いブラウザ） */
+    height: 5dvh;
+    background-color: aqua;
+    z-index: 1100;                  /* メニューより前に */
+    display: flex;                  /* 直下の要素を横並び */
+    justify-content: space-between; /* 左右端に分ける */
+    align-items: center;            /* 垂直中央揃え */
+}
+
+.header-title {
+    margin-inline-start: 1vw;
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+.header-auth {
+    margin-inline-end: 1vw;
+    font-size: 1.2rem;
+}
+
+.header-title a,
+.header-auth a {
+    color: black;
+    display: inline-block;
+}
+
+.header-title a:hover,
+.header-auth a:hover {
+    color: black;
+}
+
+.logout-button {
+    background: none;
+    border: none;
+    font-size: 1.3rem;
+}
+
+/* 固定メニューバー */
+.navbar {
+    position: fixed;
+    top: 5dvh;
+    left: 0;
+    overflow: hidden;               /* はみ出し防止 */
+    width: 100vw;
+    min-height: 5vh;                /* フォールバック（古いブラウザ） */
+    min-height: 5dvh;
+    background-color: DarkBlue;
+    color: white;
+    z-index: 1000;
+}
+
+.menu-mobile {
+    display: none;
+}
+
+.menu {
+    display: flex;
+    align-items: center;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    min-height: 5vh;                /* フォールバック（古いブラウザ） */
+    min-height: 5dvh;
+}
+
+.menu li {
+    margin: 0 2vw;
+}
+
+.menu li a {
+    color: white;
+    text-decoration: none;
+    font-size: 1rem;
+}
+
+.menu li a:hover {
+    text-decoration: underline;
+}
+
+.menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: white;
+    cursor: pointer;
+    margin-left: 2vw;
+}
+
+/* メイン内容 */
+.content {
+    margin-top: 10vh;
+    padding: 0.5rem;
+    width: 100%;
+}
+
+.top-bar {
+    position: fixed;
+    top: 10vh;
+    left: 0;
+    width: 100%;
+    background: #f8f8f8;
+    padding: 5px;
+    border-bottom: 1px solid #ccc;
+    z-index: 10;
+    box-sizing: border-box;
+}
+
+.top-bar select {
+    width: 100%;
+}
+
+.bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: #f8f8f8;
+    padding: 5px;
+    border-top: 1px solid #ccc;
+    z-index: 10;
+    box-sizing: border-box;
+}
+.bottom-bar button {
+    width: 100%;
+    box-sizing: border-box; /* ボタン内のpaddingも幅に含める */
+}
+
+.table-area {
+    padding-top: 5vh; /* 上下に余白確保（ヘッダー・フッターの分） */
+    overflow-y: auto;
+}
+
+.artist-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem 0;
+    padding-top: 5vh;
+}
+
+.artist-card {
+    padding: 0px;
+    box-sizing: border-box;
+}
+
+.artist-card-header {
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+}
+
+.artist-card table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.score-cell {
+    width: 40px;
+    text-align: right;
+}
+
+.score-input {
+    font-size: 20px;
+    width: 50px;
+}
+.others-table-container {
+    margin-top: 1vh;
+}
+
+.others-table-container table {
+    width: auto;
+    border-collapse: collapse;
+}
+/* スマホ向け（画面幅が768px未満の場合） */
+@media screen and (max-width: 767px) {
+    .artist-grid {
+        grid-template-columns: 1fr; /* 1列に */
+    }
+
+    table,
+    .others-table-container table {
+        width: 100%;
+    }
+}

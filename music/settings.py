@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from decouple import config
 from pathlib import Path
 import os
 
@@ -26,7 +27,7 @@ SECRET_KEY = "django-insecure-yy1#pyccqmn1386)-rgm3!sz2&l&1u8=4_zkbhn*gz1tb0i*5&
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "sugar191.pythonanywhere.com"]
 
 
 # Application definition
@@ -77,11 +78,11 @@ WSGI_APPLICATION = "music.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": "music",
-        "USER": "root",
-        "PASSWORD": "admin",
-        "HOST": "localhost",
-        "PORT": "3306",
+        "NAME": config("DB_NAME"),
+        "USER": config("DB_USER"),
+        "PASSWORD": config("DB_PASSWORD"),
+        "HOST": config("DB_HOST", default="localhost"),
+        "PORT": config("DB_PORT", default="3306"),
     }
 }
 
@@ -108,9 +109,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = "ja"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Tokyo"
 
 USE_I18N = True
 
@@ -122,7 +123,17 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+# 静的ファイルの収集先ディレクトリを設定
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# 静的ファイルの場所
+STATICFILES_DIRS = [
+    BASE_DIR / "static",  # プロジェクト内の静的ファイルディレクトリ
+]
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000

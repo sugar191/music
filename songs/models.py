@@ -5,6 +5,9 @@ from django.db import models
 class Artist(models.Model):
     name = models.CharField(max_length=100)
 
+    class Meta:
+        ordering = ["name"]  # ← デフォルトで name 昇順
+
     def __str__(self):
         return self.name
 
@@ -12,6 +15,12 @@ class Artist(models.Model):
 class Song(models.Model):
     title = models.CharField(max_length=100)
     artist = models.ForeignKey(Artist, on_delete=models.CASCADE, related_name="songs")
+
+    class Meta:
+        unique_together = (
+            "title",
+            "artist",
+        )  # ✅ アーティストと曲名の組み合わせを一意に
 
     def __str__(self):
         return self.title

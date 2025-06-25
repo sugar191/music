@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+    {% if error %}
+        <p style="color: red;">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        <div>
+            <label>歌手（選択）:</label>
+            <select name="artist_id" id="artist-select">
+                <option value="">-- 選択 --</option>
+                {% for artist in artists %}
+                    <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}">{{ artist.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>新規歌手名:</label>
+            <input type="text" name="new_artist_name" id="artist-name-input" placeholder="新しい歌手名">
+        </div>
+
+        曲名と点数（最大10曲）
+        {% for i in "12345678910" %}
+            <div style="margin-bottom: 5px;">
+                <input type="text" name="song_title_{{ i }}" placeholder="曲名">
+                <input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数">
+            </div>
+        {% endfor %}
+
+        <button type="submit">登録</button>
+    </form>
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const artistInput = document.getElementById("artist-name-input");
+            const artistSelect = document.getElementById("artist-select");
+
+            artistInput.addEventListener("input", function () {
+                const inputName = artistInput.value.trim().toLowerCase();
+
+                if (!inputName) return;
+
+                let matched = false;
+
+                // すべてのオプションを走査して一致する名前を探す
+                Array.from(artistSelect.options).forEach(option => {
+                    const artistName = option.dataset.name;
+                    if (artistName && artistName === inputName) {
+                        option.selected = true;
+                        matched = true;
+                    }
+                });
+
+                if (matched) {
+                    artistInput.value = "";  // 入力欄を空に
+                }
+            });
+        });
+    </script>
+{% endblock %}

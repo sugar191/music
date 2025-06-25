@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Django
+*.log
+*.pot
+*.mo
+db.sqlite3
+
+# VSCode やエディタ関連
+.vscode/
+.idea/
+
+# 環境ファイル
+.env
+
+# Static・Media
+/staticfiles/
+/media/
+
+# OS系
+.DS_Store
+Thumbs.db
+
+# ログ系
+/logs/

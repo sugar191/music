@@ -1,87 +1,37 @@
+{% extends 'base.html' %}
+{% load static %}
 {% load get_item %}
+{% block title %}楽曲一覧{% endblock %}
+{% block content %}
+    <!-- 検索フォーム（上部固定） -->
+    <!-- 検索フォーム（GET） 上に独立させて完全に閉じる -->
+    <div class="top-bar">
+        <form method="get" action="{% url 'song_list' %}" style="display: flex; gap: 10px;">
+            <input type="text" name="q" placeholder="検索（曲名/アーティスト）" value="{{ query }}" style="flex: 1;">
+            <button type="submit">検索</button>
+        </form>
+    </div>
 
-<!DOCTYPE html>
-<html>
-<head>
-    <title>楽曲一覧</title>
-    <style>
-        body {
-            margin: 0;
-            font-family: sans-serif;
-        }
-        .top-bar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background: #f8f8f8;
-            padding: 10px;
-            border-bottom: 1px solid #ccc;
-            z-index: 10;
-            box-sizing: border-box;
-        }
-        .bottom-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background: #f8f8f8;
-            padding: 10px 20px;
-            border-top: 1px solid #ccc;
-            z-index: 10;
-            box-sizing: border-box;
-        }
-        .bottom-bar button {
-            max-width: 100%;
-            box-sizing: border-box; /* ボタン内のpaddingも幅に含める */
-        }
-        .table-area {
-            padding: 70px 10px 70px 10px; /* 上下に余白確保（ヘッダー・フッターの分） */
-            overflow-y: auto;
-            max-height: calc(100vh - 140px); /* 検索バー＋保存ボタン分 */
-        }
-        table {
-            border-collapse: collapse;
-        }
-        th, td {
-            padding: 8px;
-            border: 1px solid #ccc;
-            text-align: left;
-        }
-    </style>
-</head>
-<body>
-
-<!-- 🔍 検索フォーム（上部固定） -->
-<!-- 検索フォーム（GET） 上に独立させて完全に閉じる -->
-<div class="top-bar">
-    <form method="get" action="{% url 'song_list' %}" style="display: flex; gap: 10px;">
-        <input type="text" name="q" placeholder="検索（曲名/アーティスト）" value="{{ query }}" style="flex: 1;">
-        <button type="submit">検索</button>
-    </form>
-</div>
-
-<!-- 🎵 点数保存＋テーブル（中） -->
-<form method="post">
-    {% csrf_token %}
-
+    <!-- 🎵 点数保存＋テーブル（中） -->
     <div class="table-area">
         <table>
-            <thead>
-                <tr>
-                    <th>アーティスト</th>
-                    <th>楽曲名</th>
-                    <th>点数</th>
-                </tr>
-            </thead>
             <tbody>
-                {% for song in songs %}
+                {% for song in page_obj %}
                     <tr>
-                        <td><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></td>
-                        <td><a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a></td>
+                        <td>
+                            <div><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></div>
+                            <div><a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a></div>
+                        </td>
                         <td>
                             {% with form=rating_forms|get_item:song.id %}
-                                {{ form.score }}
+                                <input
+                                    type="number"
+                                    name="{{ song.id }}-score"
+                                    step="1" min="0" max="100"
+                                    value="{{ form.initial.score|default_if_none:'' }}"
+                                    data-song-id="{{ song.id }}"
+                                    class="score-input"
+                                >
                             {% endwith %}
                         </td>
                     </tr>
@@ -91,13 +41,52 @@
             </tbody>
         </table>
     </div>
+    <div style="text-align: center;">
+        {% if page_obj.has_previous %}
+            <a href="?q={{ query }}&page={{ page_obj.previous_page_number }}">← 前のページ</a>
+        {% endif %}
 
-    <!-- 💾 保存ボタン（下部固定） -->
-    <div class="bottom-bar">
-        <button type="submit">点数を保存</button>
-        <a href="{% url 'artist_ranking' %}">ランキングを見る</a>
+        <span>ページ {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+
+        {% if page_obj.has_next %}
+            <a href="?q={{ query }}&page={{ page_obj.next_page_number }}">次のページ →</a>
+        {% endif %}
     </div>
-</form>
+{% endblock %}
+{% block extra_js %}
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const updateUrl = "{% url 'update_rating' %}";
+            const csrfToken = "{{ csrf_token }}";
+            const inputs = document.querySelectorAll(".score-input");
 
-</body>
-</html>
+            inputs.forEach(input => {
+                input.addEventListener("change", function () {
+                    const songId = this.dataset.songId;
+                    const score = this.value;
+
+                    fetch(updateUrl, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "X-CSRFToken": csrfToken,
+                        },
+                        body: `song_id=${songId}&score=${score}`,
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            console.log(`保存成功: ${songId} = ${data.score}`);
+                        } else {
+                            alert(`エラー: ${data.error}`);
+                        }
+                    })
+                    .catch(error => {
+                        alert("保存中にエラーが発生しました");
+                        console.error(error);
+                    });
+                });
+            });
+        });
+    </script>
+{% endblock %}

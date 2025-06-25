@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{% block title %}My Django App{% endblock %}</title>
+
+        {% load static %}
+        <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    </head>
+    <body>
+        <!-- ヘッダー -->
+        <header class="site-header">
+            <div class="header-title"><a href="/">楽曲ランキング</a></div>
+            <div class="header-auth">
+                {% if user.is_authenticated %}
+                    <form method="post" action="{% url 'logout' %}">
+                        {% csrf_token %}
+                        {% if user.is_superuser %}
+                            <a href="{% url 'admin:index' %}" title="管理画面"><i class="fa-solid fa-cogs"></i></a>
+                        {% endif %}
+                        <button type="submit" title="ログアウト" class="logout-button"><i class="fa-solid fa-right-from-bracket"></i></button>
+                    </form>
+                {% else %}
+                    <a href="{% url 'login' %}?next={{ request.path }}" title="ログイン"><i class="fa-solid fa-right-to-bracket"></i>
+                    <a href="{% url 'signup' %}" title="新規登録"><i class="fa-solid fa-user-plus"></i></a>
+                {% endif %}
+            </div>
+        </header>
+
+        <!-- 固定メニューバー -->
+        <div class="navbar">
+            <div class="menu-mobile">
+                <button class="menu-toggle" aria-label="メニュー切り替え"><i class="fa-solid fa-bars"></i></button>
+            </div>
+            <ul class="menu" id="menu">
+                <li><a href="/ranking/">ランキング</a></li>
+                <li><a href="/songs/">採点</a></li>
+                <li><a href="/songs/bulk_add/">曲追加</a></li>
+            </ul>
+        </div>
+
+        <div class="content">
+            {% block content %}{% endblock %}
+        </div>
+
+        <!-- JSはbodyの最後で読み込むべき！ -->
+        {% block extra_js %}
+            <script src="{% static 'js/common.js' %}"></script>
+        {% endblock %}
+    </body>
+</html>
