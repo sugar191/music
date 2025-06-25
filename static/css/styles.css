@@ -204,6 +204,7 @@ select option {
     display: flex;
     justify-content: space-between;
     font-weight: bold;
+    background-color: lightblue;
 }
 
 .artist-card table {
