@@ -36,6 +36,6 @@ class RatingAdmin(BaseResourceAdmin):
     resource_class = RatingResource
 
 
-admin.site.register(Artist)
-admin.site.register(Song)
-admin.site.register(Rating)
+admin.site.register(Artist, ArtistAdmin)
+admin.site.register(Song, SongAdmin)
+admin.site.register(Rating, RatingAdmin)
