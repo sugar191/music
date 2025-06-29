@@ -2,7 +2,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.db.models import Q, Avg, OuterRef, Subquery, IntegerField
+from django.db.models import Q, Sum, OuterRef, Subquery, IntegerField
 from .models import Artist, Song, Rating
 from .forms import InlineRatingForm
 from django.http import JsonResponse
@@ -46,7 +46,9 @@ def artist_ranking_view(request):
         ).filter(user_score__isnull=False)
 
         songs_with_user_score = qs.order_by("-user_score")[:top_n]
-        avg_score = songs_with_user_score.aggregate(avg=Avg("user_score"))["avg"] or 0
+        total_score = (
+            songs_with_user_score.aggregate(total=Sum("user_score"))["total"] or 0
+        )
         count_songs = songs_with_user_score.count()
 
         if count_songs < top_n:
@@ -55,12 +57,12 @@ def artist_ranking_view(request):
             main_artists.append(
                 {
                     "artist": artist,
-                    "avg_score": avg_score,
+                    "total_score": total_score,
                     "top_songs": songs_with_user_score,
                 }
             )
 
-    main_artists.sort(key=lambda x: x["avg_score"], reverse=True)
+    main_artists.sort(key=lambda x: x["total_score"], reverse=True)
     others_songs.sort(
         key=lambda s: s.user_score if s.user_score is not None else 0, reverse=True
     )
@@ -74,6 +76,7 @@ def artist_ranking_view(request):
             "top_n": top_n,
             "ranking_options": ranking_options,
             "selected_user": selected_user,
+            "is_own_page": selected_user == request.user,
             "all_users": User.objects.all().order_by("username"),
         },
     )

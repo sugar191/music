@@ -41,6 +41,7 @@ select {
     white-space: nowrap;   /* 折り返さず */
     overflow: hidden;      /* はみ出した部分を隠す */
     text-overflow: ellipsis; /* ... を表示 */
+    font-size: 20px;
 }
 
 select option {
@@ -239,4 +240,38 @@ select option {
     .others-table-container table {
         width: 100%;
     }
+}
+
+.modal { 
+    position: fixed; 
+    z-index: 1000; 
+    left: 0; 
+    top: 0; 
+    width: 100%; 
+    height: 100%; 
+    background-color: rgba(0,0,0,0.4); 
+}
+
+.modal-content { 
+    background-color: #fff; 
+    padding: 20px; 
+    margin: 15% auto; 
+    width: 300px; 
+    border-radius: 5px; 
+    text-align: center; 
+}
+
+.close { 
+    float: right; 
+    font-size: 20px; 
+    cursor: pointer; 
+}
+
+.editable-score {
+    color: #0000EE; /* 通常のaリンク色 (Bootstrap風) */
+    cursor: pointer;
+}
+
+.editable-score:hover {
+    color: #551A8B; /* 少し濃い青に */
 }
