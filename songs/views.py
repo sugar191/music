@@ -230,7 +230,14 @@ def bulk_add_view(request):
 
         return redirect("song_list")  # ✅ 適宜変更可
 
-    return render(request, "songs/bulk_add.html", {"artists": Artist.objects.all()})
+    return render(
+        request,
+        "songs/bulk_add.html",
+        {
+            "artists": Artist.objects.all(),
+            "range10": range(1, 11),
+        },
+    )
 
 
 def signup_view(request):

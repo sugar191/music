@@ -22,7 +22,7 @@
         </div>
 
         曲名と点数（最大10曲）
-        {% for i in "12345678910" %}
+        {% for i in range10 %}
             <div style="margin-bottom: 5px;">
                 <input type="text" name="song_title_{{ i }}" placeholder="曲名">
                 <input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数">
