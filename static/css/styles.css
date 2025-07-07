@@ -190,7 +190,7 @@ select option {
 }
 
 .artist-grid {
-    margin-top: 4vh;
+    margin-top: 5vh;
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 0.5rem;
@@ -214,7 +214,7 @@ select option {
 }
 
 .artist-ranking-grid {
-    margin-top: 4vh;
+    margin-top: 5vh;
     display: flex;
     gap: 0.5rem;
 }
