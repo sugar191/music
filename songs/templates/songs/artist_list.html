@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load get_item %}
+{% block title %}歌手一覧{% endblock %}
+{% block content %}
+<!-- ユーザー選択プルダウン -->
+    <div class="top-bar">
+        <form method="get" action="{% url 'artist_list' %}">
+            <select name="user" id="user" onchange="this.form.submit()">
+                {% for user in all_users %}
+                    <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
+                        {{ user.username }}
+                    </option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+    <div class="artist-ranking-grid">
+        <div>
+            TOP5
+            <table>
+                <tbody>
+                    {% for artist_score in top5 %}
+                        <tr>
+                            <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
+                            <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div>
+            TOP7
+            <table>
+                <tbody>
+                    {% for artist_score in top7 %}
+                        <tr>
+                            <td>{{ artist_score.artist.name }}</td>
+                            <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div>
+            TOP10
+            <table>
+                <tbody>
+                    {% for artist_score in top10 %}
+                        <tr>
+                            <td>{{ artist_score.artist.name }}</td>
+                            <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

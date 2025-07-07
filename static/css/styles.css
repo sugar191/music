@@ -185,12 +185,12 @@ select option {
 }
 
 .table-area {
-    padding-top: 5vh; /* 上下に余白確保（ヘッダー・フッターの分） */
+    margin-top: 5vh;
     overflow-y: auto;
 }
 
 .artist-grid {
-    padding-top: 4vh; /* 上下に余白確保（ヘッダー・フッターの分） */
+    margin-top: 4vh;
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 0.5rem;
@@ -213,15 +213,31 @@ select option {
     border-collapse: collapse;
 }
 
+.artist-ranking-grid {
+    margin-top: 4vh;
+    display: flex;
+    gap: 0.5rem;
+}
+
 .score-cell {
     width: 40px;
     text-align: right;
 }
 
+input[type="text"],
+input[type="number"] {
+    font-size: 1.2rem;     /* お好みのサイズに調整 */
+}
+
+input[type="submit"],
+button {
+    font-size: 1.2rem;    /* お好みのサイズに */
+}
+
 .score-input {
-    font-size: 20px;
     width: 50px;
 }
+
 .others-table-container {
     margin-top: 1vh;
 }
@@ -230,15 +246,36 @@ select option {
     width: auto;
     border-collapse: collapse;
 }
+
+.pc-cell {
+    display: table-cell;
+}
+.mobile-cell {
+    display: none;
+}
+
 /* スマホ向け（画面幅が768px未満の場合） */
 @media screen and (max-width: 767px) {
     .artist-grid {
         grid-template-columns: 1fr; /* 1列に */
     }
 
+    .artist-ranking-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
     table,
     .others-table-container table {
         width: 100%;
+    }
+
+    .pc-cell {
+        display: none;
+    }
+    .mobile-cell {
+        display: table-cell;
     }
 }
 

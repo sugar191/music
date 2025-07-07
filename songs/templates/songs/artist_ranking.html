@@ -22,34 +22,34 @@
     </div>
     <div class="artist-grid">
         {% for entry in main_artists %}
-        <div class="artist-card">
-            <div class="artist-card-header">
-                <a href="{% url 'song_list' %}?q={{ entry.artist.name }}">{{ entry.artist.name }}</a>
-                {{ entry.total_score|floatformat:0 }}
-            </div>
-            <table>
-                <tbody>
-                    {% for song in entry.top_songs %}
-                    <tr>
-                        <td>
-                            <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
-                                    {{ song.title }}
-                            </a>
-                        </td>
-                        <td class="score-cell">
-                            {% if is_own_page %}
-                                <span class="editable-score" data-song-id="{{ song.id }}" data-current-score="{{ song.user_score }}">
+            <div class="artist-card">
+                <div class="artist-card-header">
+                    <a href="{% url 'song_list' %}?q={{ entry.artist.name }}">{{ entry.artist.name }}</a>
+                    {{ entry.total_score|floatformat:0 }}
+                </div>
+                <table>
+                    <tbody>
+                        {% for song in entry.top_songs %}
+                        <tr>
+                            <td>
+                                <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                                        {{ song.title }}
+                                </a>
+                            </td>
+                            <td class="score-cell">
+                                {% if is_own_page %}
+                                    <span class="editable-score" data-song-id="{{ song.id }}" data-current-score="{{ song.user_score }}">
+                                        {{ song.user_score }}
+                                    </span>
+                                {% else %}
                                     {{ song.user_score }}
-                                </span>
-                            {% else %}
-                                {{ song.user_score }}
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         {% endfor %}
     </div>
     <div class="others-table-container">
@@ -58,7 +58,13 @@
             <tbody>
                 {% for song in others_songs %}
                 <tr>
-                    <td>
+                    <td class="pc-cell">
+                        <a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a>
+                    </td>
+                    <td class="pc-cell">
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
+                    </td>
+                    <td class="mobile-cell">
                         <div><a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a></div>
                         <div><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></div>
                     </td>

@@ -82,6 +82,69 @@ def artist_ranking_view(request):
     )
 
 
+def get_artist_list(selected_user, top_n):
+    rated_artist_ids = (
+        Artist.objects.filter(songs__ratings__user=selected_user)
+        .distinct()
+        .values_list("id", flat=True)
+    )
+    artists = Artist.objects.filter(id__in=rated_artist_ids)
+    main_artists = []
+
+    user_rating_subquery = Rating.objects.filter(
+        user=selected_user,
+        song=OuterRef("pk"),
+    ).values("score")[:1]
+
+    for artist in artists:
+        qs = artist.songs.annotate(
+            user_score=Subquery(user_rating_subquery, output_field=IntegerField()),
+        ).filter(user_score__isnull=False)
+
+        songs_with_user_score = qs.order_by("-user_score")[:top_n]
+        total_score = (
+            songs_with_user_score.aggregate(total=Sum("user_score"))["total"] or 0
+        )
+        count_songs = songs_with_user_score.count()
+
+        if count_songs >= top_n:
+            main_artists.append(
+                {
+                    "artist": artist,
+                    "total_score": total_score,
+                }
+            )
+
+    main_artists.sort(key=lambda x: x["total_score"], reverse=True)
+
+    return main_artists
+
+
+@login_required
+def artist_list_view(request):
+    selected_user_id = request.GET.get("user")
+    if selected_user_id:
+        selected_user = get_object_or_404(User, id=selected_user_id)
+    else:
+        selected_user = request.user
+
+    top5 = get_artist_list(selected_user, 5)
+    top7 = get_artist_list(selected_user, 7)
+    top10 = get_artist_list(selected_user, 10)
+
+    return render(
+        request,
+        "songs/artist_list.html",
+        {
+            "top5": top5,
+            "top7": top7,
+            "top10": top10,
+            "selected_user": selected_user,
+            "all_users": User.objects.all().order_by("username"),
+        },
+    )
+
+
 @login_required
 def song_list_view(request):
     query = request.GET.get("q", "")
