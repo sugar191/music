@@ -90,6 +90,7 @@ def get_artist_list(selected_user, top_n):
     )
     artists = Artist.objects.filter(id__in=rated_artist_ids)
     main_artists = []
+    other_artists = []
 
     user_rating_subquery = Rating.objects.filter(
         user=selected_user,
@@ -114,10 +115,19 @@ def get_artist_list(selected_user, top_n):
                     "total_score": total_score,
                 }
             )
+        else:
+            other_artists.append(
+                {
+                    "artist": artist,
+                    "rated_count": count_songs,
+                    "total_songs": artist.songs.count(),
+                }
+            )
 
     main_artists.sort(key=lambda x: x["total_score"], reverse=True)
+    other_artists.sort(key=lambda x: x["rated_count"], reverse=True)
 
-    return main_artists
+    return main_artists, other_artists
 
 
 @login_required
@@ -128,9 +138,9 @@ def artist_list_view(request):
     else:
         selected_user = request.user
 
-    top5 = get_artist_list(selected_user, 5)
-    top7 = get_artist_list(selected_user, 7)
-    top10 = get_artist_list(selected_user, 10)
+    top5, other_artists = get_artist_list(selected_user, 5)
+    top7, _ = get_artist_list(selected_user, 7)
+    top10, _ = get_artist_list(selected_user, 10)
 
     return render(
         request,
@@ -139,6 +149,7 @@ def artist_list_view(request):
             "top5": top5,
             "top7": top7,
             "top10": top10,
+            "other_artists": other_artists,
             "selected_user": selected_user,
             "all_users": User.objects.all().order_by("username"),
         },
