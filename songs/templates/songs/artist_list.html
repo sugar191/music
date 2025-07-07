@@ -35,7 +35,7 @@
                 <tbody>
                     {% for artist_score in top7 %}
                         <tr>
-                            <td>{{ artist_score.artist.name }}</td>
+                            <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
@@ -48,7 +48,7 @@
                 <tbody>
                     {% for artist_score in top10 %}
                         <tr>
-                            <td>{{ artist_score.artist.name }}</td>
+                            <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
