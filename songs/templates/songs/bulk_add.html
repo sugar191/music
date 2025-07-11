@@ -7,12 +7,27 @@
 
     <form method="post">
         {% csrf_token %}
+        <!-- region選択 -->
         <div>
-            <label>歌手（選択）:</label>
+            <label>ジャンル:</label>
+            <select name="region_id" id="region-select">
+                <option value="">-- 選択 --</option>
+                {% for r in regions %}
+                    <option value="{{ r.id }}">{{ r.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>歌手:</label>
             <select name="artist_id" id="artist-select">
                 <option value="">-- 選択 --</option>
                 {% for artist in artists %}
-                    <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}">{{ artist.name }}</option>
+                    <option value="{{ artist.id }}"
+                            data-name="{{ artist.name|lower }}"
+                            data-region-id="{{ artist.region.id }}">
+                        {{ artist.name }}
+                    </option>
                 {% endfor %}
             </select>
         </div>
@@ -33,31 +48,45 @@
 {% endblock %}
 
 {% block extra_js %}
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            const artistInput = document.getElementById("artist-name-input");
-            const artistSelect = document.getElementById("artist-select");
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const regionSelect = document.getElementById("region-select");
+    const artistInput = document.getElementById("artist-name-input");
+    const artistSelect = document.getElementById("artist-select");
 
-            artistInput.addEventListener("input", function () {
-                const inputName = artistInput.value.trim().toLowerCase();
-
-                if (!inputName) return;
-
-                let matched = false;
-
-                // すべてのオプションを走査して一致する名前を探す
-                Array.from(artistSelect.options).forEach(option => {
-                    const artistName = option.dataset.name;
-                    if (artistName && artistName === inputName) {
-                        option.selected = true;
-                        matched = true;
-                    }
-                });
-
-                if (matched) {
-                    artistInput.value = "";  // 入力欄を空に
-                }
-            });
+    function filterArtistsByRegion(regionId) {
+        Array.from(artistSelect.options).forEach(option => {
+            if (!option.value) return;
+            const artistRegionId = option.dataset.regionId;
+            option.style.display = (regionId === "" || artistRegionId === regionId) ? "block" : "none";
         });
-    </script>
+    }
+
+    regionSelect.addEventListener("change", function () {
+        filterArtistsByRegion(this.value);
+    });
+
+    artistInput.addEventListener("input", function () {
+        const inputName = artistInput.value.trim().toLowerCase();
+        if (!inputName) return;
+
+        let matched = false;
+        Array.from(artistSelect.options).forEach(option => {
+            const artistName = option.dataset.name;
+            if (artistName && artistName === inputName) {
+                option.selected = true;
+                regionSelect.value = option.dataset.regionId;  // regionも反映
+                matched = true;
+            }
+        });
+
+        if (matched) {
+            artistInput.value = "";
+        }
+    });
+
+    // 初期表示で選ばれているregionに基づいて絞り込み
+    filterArtistsByRegion(regionSelect.value);
+});
+</script>
 {% endblock %}

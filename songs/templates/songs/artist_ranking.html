@@ -11,6 +11,12 @@
                     <option value="{{ n }}" {% if top_n == n %}selected{% endif %}>TOP{{ n }}</option>
                 {% endfor %}
             </select>
+            <select name="region_id" id="region-select" onchange="this.form.submit()">
+                <option value="" {% if not region_id %}selected{% endif %}>全て</option>
+                {% for r in regions %}
+                    <option value="{{ r.id }}" {% if r.id|stringformat:"s" == region_id %}selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
             <select name="user" id="user" onchange="this.form.submit()">
                 {% for user in all_users %}
                     <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>

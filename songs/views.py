@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum, OuterRef, Subquery, IntegerField
-from .models import Artist, Song, Rating
+from .models import Artist, Song, Rating, MusicRegion
 from .forms import InlineRatingForm
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
@@ -15,6 +15,10 @@ from django.contrib.auth.forms import UserCreationForm
 @login_required
 def artist_ranking_view(request):
     ranking_options = [5, 7, 10]
+    regions = MusicRegion.objects.all()
+    region_id = request.GET.get("region_id")
+    if region_id is None:
+        region_id = "1"  # 初期値として邦楽 (id=1)
     selected_user_id = request.GET.get("user")
     if selected_user_id:
         selected_user = get_object_or_404(User, id=selected_user_id)
@@ -31,7 +35,14 @@ def artist_ranking_view(request):
         .distinct()
         .values_list("id", flat=True)
     )
+
     artists = Artist.objects.filter(id__in=rated_artist_ids)
+    if region_id:
+        try:
+            region_id_int = int(region_id)
+            artists = artists.filter(region_id=region_id_int)
+        except ValueError:
+            pass
     main_artists = []
     others_songs = []
 
@@ -71,10 +82,12 @@ def artist_ranking_view(request):
         request,
         "songs/artist_ranking.html",
         {
+            "regions": regions,
             "main_artists": main_artists,
             "others_songs": others_songs,
             "top_n": top_n,
             "ranking_options": ranking_options,
+            "region_id": region_id,
             "selected_user": selected_user,
             "is_own_page": selected_user == request.user,
             "all_users": User.objects.all().order_by("username"),
@@ -82,13 +95,22 @@ def artist_ranking_view(request):
     )
 
 
-def get_artist_list(selected_user, top_n):
+def get_artist_list(selected_user, region_id, top_n):
     rated_artist_ids = (
         Artist.objects.filter(songs__ratings__user=selected_user)
         .distinct()
         .values_list("id", flat=True)
     )
     artists = Artist.objects.filter(id__in=rated_artist_ids)
+
+    # region_idが指定されていれば絞り込む
+    if region_id:
+        try:
+            region_id_int = int(region_id)
+            artists = artists.filter(region_id=region_id_int)
+        except ValueError:
+            pass  # region_idが不正な場合は無視
+
     main_artists = []
     other_artists = []
 
@@ -125,22 +147,26 @@ def get_artist_list(selected_user, top_n):
             )
 
     main_artists.sort(key=lambda x: x["total_score"], reverse=True)
-    other_artists.sort(key=lambda x: x["rated_count"], reverse=True)
+    other_artists.sort(key=lambda x: (x["rated_count"], x["total_songs"]), reverse=True)
 
     return main_artists, other_artists
 
 
 @login_required
 def artist_list_view(request):
+    regions = MusicRegion.objects.all()
+    region_id = request.GET.get("region_id")
+    if region_id is None:
+        region_id = "1"  # 初期値として邦楽 (id=1)
     selected_user_id = request.GET.get("user")
     if selected_user_id:
         selected_user = get_object_or_404(User, id=selected_user_id)
     else:
         selected_user = request.user
 
-    top5, other_artists = get_artist_list(selected_user, 5)
-    top7, _ = get_artist_list(selected_user, 7)
-    top10, _ = get_artist_list(selected_user, 10)
+    top5, other_artists = get_artist_list(selected_user, region_id, 5)
+    top7, _ = get_artist_list(selected_user, region_id, 7)
+    top10, _ = get_artist_list(selected_user, region_id, 10)
 
     return render(
         request,
@@ -150,6 +176,8 @@ def artist_list_view(request):
             "top7": top7,
             "top10": top10,
             "other_artists": other_artists,
+            "regions": regions,
+            "region_id": region_id,
             "selected_user": selected_user,
             "all_users": User.objects.all().order_by("username"),
         },
@@ -242,9 +270,13 @@ def update_rating_view(request):
 
 @login_required
 def bulk_add_view(request):
+    regions = MusicRegion.objects.all()
+    artists = Artist.objects.all().order_by("name")
+
     if request.method == "POST":
         user = request.user
 
+        region_id = request.POST.get("region_id")
         artist_id = request.POST.get("artist_id")
         new_artist_name = request.POST.get("new_artist_name", "").strip()
 
@@ -257,18 +289,47 @@ def bulk_add_view(request):
                     request,
                     "songs/bulk_add.html",
                     {
-                        "artists": Artist.objects.all(),
+                        "artists": artists,
+                        "regions": regions,
                         "error": "選択された歌手が存在しません。",
                     },
                 )
         elif new_artist_name:
-            artist, _ = Artist.objects.get_or_create(name=new_artist_name)
+            if not region_id:
+                return render(
+                    request,
+                    "songs/bulk_add.html",
+                    {
+                        "artists": artists,
+                        "regions": regions,
+                        "range10": range(1, 11),  # ★ 忘れずに渡す
+                        "error": "新しい歌手名を登録する場合、地域を選択してください。",
+                    },
+                )
+            try:
+                region = MusicRegion.objects.get(id=region_id)
+            except MusicRegion.DoesNotExist:
+                return render(
+                    request,
+                    "songs/bulk_add.html",
+                    {
+                        "artists": artists,
+                        "regions": regions,
+                        "range10": range(1, 11),  # ← ここを必ず追加
+                        "error": "選択された地域が存在しません。",
+                    },
+                )
+            artist, _ = Artist.objects.get_or_create(
+                name=new_artist_name, defaults={"region": region}
+            )
         else:
             return render(
                 request,
                 "songs/bulk_add.html",
                 {
-                    "artists": Artist.objects.all(),
+                    "artists": artists,
+                    "regions": regions,
+                    "range10": range(1, 11),  # ← ここを必ず追加
                     "error": "歌手を選択するか新規入力してください。",
                 },
             )
@@ -294,7 +355,6 @@ def bulk_add_view(request):
                 try:
                     song = Song.objects.create(title=title, artist=artist)
                 except IntegrityError:
-                    # 万が一 race condition で重複が発生したら再取得
                     song = Song.objects.get(title=title, artist=artist)
 
             # 評価の作成・更新
@@ -302,13 +362,14 @@ def bulk_add_view(request):
                 user=user, song=song, defaults={"score": score}
             )
 
-        return redirect("song_list")  # ✅ 適宜変更可
+        return redirect("song_list")
 
     return render(
         request,
         "songs/bulk_add.html",
         {
-            "artists": Artist.objects.all(),
+            "artists": artists,
+            "regions": regions,
             "range10": range(1, 11),
         },
     )
