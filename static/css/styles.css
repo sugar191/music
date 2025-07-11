@@ -224,6 +224,18 @@ select option {
     text-align: right;
 }
 
+.count-cell {
+    text-align: right;
+}
+
+.border_right_none {
+    border-right: none;
+}
+
+.border_left_none {
+    border-left: none;
+}
+
 input[type="text"],
 input[type="number"] {
     font-size: 1.2rem;     /* お好みのサイズに調整 */

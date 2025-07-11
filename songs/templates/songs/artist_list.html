@@ -68,7 +68,8 @@
                     {% for artist_score in other_artists %}
                         <tr>
                             <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
-                            <td>{{ artist_score.rated_count }} / {{ artist_score.total_songs }}曲</td>
+                            <td class="count-cell border_right_none">{{ artist_score.rated_count }}/</td>
+                            <td class="count-cell border_left_none">{{ artist_score.total_songs }}曲</td>
                         </tr>
                     {% endfor %}
                 </tbody>
