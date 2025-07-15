@@ -21,53 +21,53 @@
             </select>
         </form>
     </div>
-    <div class="artist-ranking-grid">
-        <div>
+    <div class="artist-grid">
+        <div class="artist-card">
             <div class="artist-card-header">TOP5</div>
             <table>
                 <tbody>
                     {% for artist_score in top5 %}
                         <tr>
-                            <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
+                            <td><div class="one_line_cell"><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-        <div>
+        <div class="artist-card">
             <div class="artist-card-header">TOP7</div>
             <table>
                 <tbody>
                     {% for artist_score in top7 %}
                         <tr>
-                            <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
+                            <td><div class="one_line_cell"><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-        <div>
+        <div class="artist-card">
             <div class="artist-card-header">TOP10</div>
             <table>
                 <tbody>
                     {% for artist_score in top10 %}
                         <tr>
-                            <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
+                            <td><div class="one_line_cell"><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-        <div>
+        <div class="artist-card">
             <div class="artist-card-header">その他</div>
             <table>
                 <tbody>
                     {% for artist_score in other_artists %}
                         <tr>
-                            <td><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></td>
+                            <td><div class="one_line_cell"><a href="{% url 'song_list' %}?q={{ artist_score.artist.name }}">{{ artist_score.artist.name }}</a></div></td>
                             <td class="count-cell border_right_none">{{ artist_score.rated_count }}/</td>
                             <td class="count-cell border_left_none">{{ artist_score.total_songs }}曲</td>
                         </tr>

@@ -339,15 +339,8 @@ def bulk_add_view(request):
             title = request.POST.get(f"song_title_{i}", "").strip()
             score = request.POST.get(f"song_score_{i}", "").strip()
 
-            if not title or not score:
+            if not title:
                 continue  # 入力なしはスキップ
-
-            try:
-                score = int(score)
-                if not (0 <= score <= 100):
-                    continue  # 範囲外はスキップ
-            except ValueError:
-                continue  # 無効な数値はスキップ
 
             # 曲の取得または新規作成（重複チェック込み）
             song = Song.objects.filter(title=title, artist=artist).first()
@@ -356,11 +349,16 @@ def bulk_add_view(request):
                     song = Song.objects.create(title=title, artist=artist)
                 except IntegrityError:
                     song = Song.objects.get(title=title, artist=artist)
-
-            # 評価の作成・更新
-            Rating.objects.update_or_create(
-                user=user, song=song, defaults={"score": score}
-            )
+            # 点数がある場合のみ評価を登録・更新
+            if score:
+                try:
+                    score = int(score)
+                    if 0 <= score <= 100:
+                        Rating.objects.update_or_create(
+                            user=user, song=song, defaults={"score": score}
+                        )
+                except ValueError:
+                    pass  # 無効な数値はスキップ
 
         return redirect("song_list")
 
