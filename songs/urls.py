@@ -7,6 +7,7 @@ from .views import (
     update_rating_view,
     bulk_add_view,
     signup_view,
+    missing_audio_files_view,
 )
 
 urlpatterns = [
@@ -15,6 +16,7 @@ urlpatterns = [
     path("songs/", song_list_view, name="song_list"),
     path("update-rating/", update_rating_view, name="update_rating"),
     path("songs/bulk_add/", bulk_add_view, name="bulk_add_songs"),
+    path("missing-files/", missing_audio_files_view, name="missing_audio_files"),
     path(
         "login/",
         auth_views.LoginView.as_view(template_name="registration/login.html"),

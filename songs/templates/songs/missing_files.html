@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load get_item %}
+{% block title %}未所持一覧{% endblock %}
+{% block content %}
+    {% if missing_songs %}
+        <table border="1" cellspacing="0" cellpadding="5">
+            <thead>
+            <tr>
+                <th>地域</th>
+                <th>アーティスト名</th>
+                <th>曲名</th>
+                <th>スコア</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for song in missing_songs %}
+                <tr>
+                    <td>{{ song.artist.region }}</td>
+                    <td>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                            {{ song.artist.name }}
+                        </a>
+                    </td>
+                    <td>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                            {{ song.title }}
+                        </a>
+                    </td>
+                    <td>
+                        {% with rating=rating_dict|get_item:song.id %}
+                            {% if rating %}
+                                {% if rating >= 95 %}
+                                    <span style="color: red; font-weight: bold;">{{ rating }}</span>
+                                {% elif rating >= 90 %}
+                                    <span style="color: blue;">{{ rating }}</span>
+                                {% else %}
+                                    {{ rating }}
+                                {% endif %}
+                            {% else %}
+                                -
+                            {% endif %}
+                        {% endwith %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>すべての曲に対応する音声ファイルがあります。</p>
+    {% endif %}
+{% endblock %}

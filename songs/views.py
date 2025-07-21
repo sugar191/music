@@ -1,15 +1,21 @@
-from django.shortcuts import render, get_object_or_404, redirect
+import os
+from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
+from django.db import IntegrityError
 from django.db.models import Q, Sum, OuterRef, Subquery, IntegerField
-from .models import Artist, Song, Rating, MusicRegion
-from .forms import InlineRatingForm
 from django.http import JsonResponse
+from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
-from django.db import IntegrityError
-from django.contrib.auth.forms import UserCreationForm
+from mutagen.easyid3 import EasyID3
+from .models import Artist, Song, Rating, MusicRegion
+from .forms import InlineRatingForm
+
+MUSIC_DIR = r"C:\Users\pawab\Music"
 
 
 @login_required
@@ -382,3 +388,53 @@ def signup_view(request):
     else:
         form = UserCreationForm()
     return render(request, "registration/signup.html", {"form": form})
+
+
+@staff_member_required
+def missing_audio_files_view(request):
+    tag_set = set()
+
+    for root, dirs, files in os.walk(MUSIC_DIR):
+        for file in files:
+            if file.lower().endswith(".mp3"):
+                try:
+                    audio = EasyID3(os.path.join(root, file))
+                    artist = audio.get("artist", [""])[0].strip()
+                    title = audio.get("title", [""])[0].strip()
+                    if artist and title:
+                        tag_set.add((artist, title))
+                except Exception:
+                    continue
+
+    songs = Song.objects.select_related("artist").all()
+    missing_songs = []
+
+    for song in songs:
+        key = (song.artist.name.strip(), song.title.strip())
+        if key not in tag_set:
+            missing_songs.append(song)
+
+    # region.id → artist.name → song.title でソート
+    missing_songs = sorted(
+        missing_songs,
+        key=lambda s: (
+            s.artist.region.id if s.artist.region else 0,
+            s.artist.name,
+            s.title,
+        ),
+    )
+
+    # user=2の全Ratingを取得して辞書にする（キーはsong.id）
+    user_id = 2
+    ratings = Rating.objects.filter(user_id=user_id, song__in=missing_songs)
+    rating_dict = {r.song_id: r.score for r in ratings}
+
+    return render(
+        request,
+        "songs/missing_files.html",
+        {
+            "missing_songs": missing_songs,
+            "rating_dict": rating_dict,
+            "user_id": user_id,
+        },
+    )

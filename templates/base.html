@@ -18,6 +18,7 @@
                     <form method="post" action="{% url 'logout' %}">
                         {% csrf_token %}
                         {% if user.is_superuser %}
+                            <a href="{% url 'missing_audio_files' %}" title="管理者機能"><i class="fa-solid fa-list-check"></i></a>
                             <a href="{% url 'admin:index' %}" title="管理画面"><i class="fa-solid fa-cogs"></i></a>
                         {% endif %}
                         <button type="submit" title="ログアウト" class="logout-button"><i class="fa-solid fa-right-from-bracket"></i></button>
