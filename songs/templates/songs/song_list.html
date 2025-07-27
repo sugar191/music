@@ -19,26 +19,32 @@
                 {% for song in page_obj %}
                     <tr>
                         <td class="pc-cell">
-                            <a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a>
+                            <a href="{% url 'artist_songs' song.artist.id %}">{{ song.artist.name }}</a>
                         </td>
                         <td class="pc-cell">
                             <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
                         </td>
+                        <td class="pc-cell">
+                            {% with form=rating_forms|get_item:song.id %}
+                                <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
+                            {% endwith %}
+                        </td>
+                        <td class="count-cell pc-cell">
+                            <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>カバー曲
+                        </td>
                         <td class="mobile-cell">
                             <div><a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a></div>
-                            <div><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></div>
+                            <div><a href="{% url 'artist_songs' song.artist.id %}">{{ song.artist.name }}</a></div>
                         </td>
-                        <td>
-                            {% with form=rating_forms|get_item:song.id %}
-                                <input
-                                    type="number"
-                                    name="{{ song.id }}-score"
-                                    step="1" min="0" max="100"
-                                    value="{{ form.initial.score|default_if_none:'' }}"
-                                    data-song-id="{{ song.id }}"
-                                    class="score-input"
-                                >
-                            {% endwith %}
+                        <td class="count-cell mobile-cell">
+                            <div>
+                                {% with form=rating_forms|get_item:song.id %}
+                                    <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
+                                {% endwith %}
+                            </div>
+                            <div>
+                                <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>カバー
+                            </div>
                         </td>
                     </tr>
                 {% empty %}
@@ -60,16 +66,21 @@
     </div>
 {% endblock %}
 {% block extra_js %}
+{{ block.super }}
     <script>
         document.addEventListener("DOMContentLoaded", function () {
             const updateUrl = "{% url 'update_rating' %}";
+            const coverUpdateUrl = "{% url 'update_cover' %}";  // ↓ viewで定義予定
             const csrfToken = "{{ csrf_token }}";
             const inputs = document.querySelectorAll(".score-input");
+            const checkboxes = document.querySelectorAll(".cover-checkbox");
 
             inputs.forEach(input => {
                 input.addEventListener("change", function () {
                     const songId = this.dataset.songId;
                     const score = this.value;
+
+                    showOverlay(); // 処理開始
 
                     fetch(updateUrl, {
                         method: "POST",
@@ -89,6 +100,35 @@
                     })
                     .catch(error => {
                         alert("保存中にエラーが発生しました");
+                        console.error(error);
+                    })
+                    .finally(() => {
+                        hideOverlay(); // 処理終了
+                    });
+                });
+            });
+
+            checkboxes.forEach(checkbox => {
+                checkbox.addEventListener("change", function () {
+                    const songId = this.dataset.songId;
+                    const isCover = this.checked;
+
+                    fetch(coverUpdateUrl, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "X-CSRFToken": csrfToken,
+                        },
+                        body: `song_id=${songId}&is_cover=${isCover}`,
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.success) {
+                            alert(`保存エラー: ${data.error}`);
+                        }
+                    })
+                    .catch(error => {
+                        alert("通信エラー");
                         console.error(error);
                     });
                 });

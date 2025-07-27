@@ -12,9 +12,10 @@ class MusicRegion(models.Model):
 
 class Artist(models.Model):
     name = models.CharField(max_length=100)
+    format_name = models.CharField(max_length=100, null=True, blank=True)
     region = models.ForeignKey(
         MusicRegion,
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="artists",
@@ -33,6 +34,7 @@ class Artist(models.Model):
 
 class Song(models.Model):
     title = models.CharField(max_length=100)
+    format_title = models.CharField(max_length=100, null=True, blank=True)
     artist = models.ForeignKey(Artist, on_delete=models.CASCADE, related_name="songs")
     is_cover = models.BooleanField(
         null=True,

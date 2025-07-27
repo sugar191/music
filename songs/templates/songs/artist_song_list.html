@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load get_item %}
+{% block title %}{{ artist.name }}の曲一覧{% endblock %}
+{% block content %}
+<div>{{ artist.name }} の曲一覧</div>
+
+<table>
+    <thead>
+        <tr>
+            <th class="count-cell">順位</th>
+            <th>タイトル</th>
+            <th>点数</th>
+            <th class="cover-cell">カバー</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for entry in songs %}
+        {% with song=entry.song %}
+        <tr>
+            <td class="count-cell">{{ entry.rank }}位</td>
+            <td>
+                <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
+                {% if song.is_cover %}(カバー){% endif %}
+            </td>
+            <td>
+                {% with form=rating_forms|get_item:song.id %}
+                    <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
+                {% endwith %}
+            </td>
+            <td class="cover-cell">
+                <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>
+            </td>
+        </tr>
+        {% endwith %}
+        {% empty %}
+            <tr><td colspan="4">曲が見つかりませんでした。</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<p><a href="{{ request.META.HTTP_REFERER }}">← 戻る</a></p>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const updateRatingUrl = "{% url 'update_rating' %}";
+        const updateCoverUrl = "{% url 'update_cover' %}";
+        const csrfToken = "{{ csrf_token }}";
+
+        // 点数入力処理
+        document.querySelectorAll(".score-input").forEach(input => {
+            input.addEventListener("change", function () {
+                const songId = this.dataset.songId;
+                const score = this.value;
+
+                showOverlay(); // 処理開始
+
+                fetch(updateRatingUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "X-CSRFToken": csrfToken,
+                    },
+                    body: `song_id=${songId}&score=${score}`,
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) alert(`保存エラー: ${data.error}`);
+                })
+                .catch(error => {
+                    alert("点数保存中にエラーが発生しました");
+                    console.error(error);
+                })
+                .finally(() => {
+                    hideOverlay(); // 処理終了
+                });
+            });
+        });
+
+        // カバー曲チェック処理
+        document.querySelectorAll(".cover-checkbox").forEach(checkbox => {
+            checkbox.addEventListener("change", function () {
+                const songId = this.dataset.songId;
+                const isCover = this.checked;
+
+                showOverlay(); // 処理開始
+
+                fetch(updateCoverUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "X-CSRFToken": csrfToken,
+                    },
+                    body: `song_id=${songId}&is_cover=${isCover}`,
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) alert(`カバー保存エラー: ${data.error}`);
+                })
+                .catch(error => {
+                    alert("カバー情報保存中にエラーが発生しました");
+                    console.error(error);
+                })
+                .finally(() => {
+                    hideOverlay(); // 処理終了
+                });
+            });
+        });
+    });
+</script>
+{% endblock %}

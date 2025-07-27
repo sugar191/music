@@ -5,7 +5,7 @@
 {% block content %}
 <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
-        <form method="get" action="{% url 'artist_ranking' %}">
+        <form method="get" action="{% url 'ranking' %}">
             <select name="top_n" id="top_n" onchange="this.form.submit()">
                 {% for n in ranking_options %}
                     <option value="{{ n }}" {% if top_n == n %}selected{% endif %}>TOP{{ n }}</option>
@@ -29,22 +29,26 @@
     <div class="artist-grid">
         {% for entry in main_artists %}
             <div class="artist-card">
-                <div class="artist-card-header">
-                    <a href="{% url 'song_list' %}?q={{ entry.artist.name }}">{{ entry.artist.name }}</a>
-                    {{ entry.total_score|floatformat:0 }}
-                </div>
                 <table>
+                    <thead>
+                        <th class="count-cell">{{ entry.rank }}位</th>
+                        <th><a href="{% url 'artist_songs' entry.artist.id %}">{{ entry.artist.name }}</a></th>
+                        <th class="score-cell">{{ entry.total_score|floatformat:0 }}</th>
+                    </thead>
                     <tbody>
                         {% for song in entry.top_songs %}
                         <tr>
+                            <td class="count-cell">
+                                {{ song.rank }}位
+                            </td>
                             <td>
-                                <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
-                                        {{ song.title }}
+                                <a href="https://www.youtube.com/results?search_query={{ song.song.artist.name|urlencode }}+{{ song.song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                                        {{ song.song.title }}
                                 </a>
                             </td>
                             <td class="score-cell">
                                 {% if is_own_page %}
-                                    <span class="editable-score" data-song-id="{{ song.id }}" data-current-score="{{ song.user_score }}">
+                                    <span class="editable-score" data-song-id="{{ song.song.id }}" data-current-score="{{ song.user_score }}">
                                         {{ song.user_score }}
                                     </span>
                                 {% else %}
@@ -64,19 +68,20 @@
             <tbody>
                 {% for song in others_songs %}
                 <tr>
+                    <td class="count-cell">{{ song.rank }}位</td>
                     <td class="pc-cell">
-                        <a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a>
+                        <a href="{% url 'artist_songs' song.song.artist.id %}">{{ song.song.artist.name }}</a>
                     </td>
                     <td class="pc-cell">
-                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
+                        <a href="https://www.youtube.com/results?search_query={{ song.song.artist.name|urlencode }}+{{ song.song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song.title }}</a>
                     </td>
                     <td class="mobile-cell">
-                        <div><a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a></div>
-                        <div><a href="{% url 'song_list' %}?q={{ song.artist.name }}">{{ song.artist.name }}</a></div>
+                        <div><a href="https://www.youtube.com/results?search_query={{ song.song.artist.name|urlencode }}+{{ song.song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song.title }}</a></div>
+                        <div><a href="{% url 'artist_songs' song.song.artist.id %}">{{ song.song.artist.name }}</a></div>
                     </td>
                     <td class="score-cell">
                         {% if is_own_page %}
-                            <span class="editable-score" data-song-id="{{ song.id }}" data-current-score="{{ song.user_score }}">
+                            <span class="editable-score" data-song-id="{{ song.song.id }}" data-current-score="{{ song.user_score }}">
                                 {{ song.user_score }}
                             </span>
                         {% else %}
@@ -99,6 +104,7 @@
     </div>
 {% endblock %}
 {% block extra_js %}
+{{ block.super }}
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const modal = document.getElementById("scoreModal");
@@ -121,6 +127,8 @@
 
         saveBtn.addEventListener("click", function () {
             const score = scoreInput.value;
+
+            showOverlay(); // 処理開始
 
             fetch("{% url 'update_rating' %}", {
                 method: "POST",

@@ -19,25 +19,25 @@ MUSIC_DIR = r"C:\Users\pawab\Music"
 
 
 @login_required
-def artist_ranking_view(request):
+def ranking_view(request):
     ranking_options = [5, 7, 10]
     regions = MusicRegion.objects.all()
-    region_id = request.GET.get("region_id")
-    if region_id is None:
-        region_id = "1"  # 初期値として邦楽 (id=1)
+
+    region_id = request.GET.get("region_id") or "1"
     selected_user_id = request.GET.get("user")
-    if selected_user_id:
-        selected_user = get_object_or_404(User, id=selected_user_id)
-    else:
-        selected_user = request.user
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
 
     try:
         top_n = int(request.GET.get("top_n", 5))
     except ValueError:
-        top_n = 5  # 不正な値だった場合のフォールバック
+        top_n = 5
 
     rated_artist_ids = (
-        Artist.objects.filter(songs__ratings__user=selected_user)
+        Artist.objects.filter(songs__ratings__user=selected_user, songs__is_cover=0)
         .distinct()
         .values_list("id", flat=True)
     )
@@ -49,48 +49,98 @@ def artist_ranking_view(request):
             artists = artists.filter(region_id=region_id_int)
         except ValueError:
             pass
+
     main_artists = []
     others_songs = []
 
     user_rating_subquery = Rating.objects.filter(
-        user=selected_user,
-        song=OuterRef("pk"),
+        user=selected_user, song=OuterRef("pk"), song__is_cover=0
     ).values("score")[:1]
 
     for artist in artists:
         qs = artist.songs.annotate(
-            user_score=Subquery(user_rating_subquery, output_field=IntegerField()),
+            user_score=Subquery(user_rating_subquery, output_field=IntegerField())
         ).filter(user_score__isnull=False)
 
-        songs_with_user_score = qs.order_by("-user_score")[:top_n]
-        total_score = (
-            songs_with_user_score.aggregate(total=Sum("user_score"))["total"] or 0
-        )
-        count_songs = songs_with_user_score.count()
+        songs_with_user_score = list(qs.order_by("-user_score")[:top_n])
+        total_score = sum(song.user_score for song in songs_with_user_score)
+        count_songs = len(songs_with_user_score)
 
         if count_songs < top_n:
-            others_songs.extend(list(songs_with_user_score[:10]))
+            others_songs.extend(songs_with_user_score[:10])
         else:
+            # 曲順位付け（スキップあり、同点同順位）
+            songs_with_rank = []
+            prev_score = None
+            current_rank = 0
+            next_rank = 1
+
+            for song in songs_with_user_score:
+                if song.user_score != prev_score:
+                    current_rank = next_rank
+                songs_with_rank.append(
+                    {
+                        "song": song,
+                        "rank": current_rank,
+                        "user_score": song.user_score,
+                    }
+                )
+                prev_score = song.user_score
+                next_rank += 1
+
             main_artists.append(
                 {
                     "artist": artist,
                     "total_score": total_score,
-                    "top_songs": songs_with_user_score,
+                    "top_songs": songs_with_rank,  # 曲の順位付き
                 }
             )
 
+    # アーティスト順位付け（スキップあり）
     main_artists.sort(key=lambda x: x["total_score"], reverse=True)
+    ranked_main_artists = []
+    prev_score = None
+    current_rank = 0
+    next_rank = 1
+
+    for artist_dict in main_artists:
+        if artist_dict["total_score"] != prev_score:
+            current_rank = next_rank
+        artist_dict["rank"] = current_rank
+        ranked_main_artists.append(artist_dict)
+        prev_score = artist_dict["total_score"]
+        next_rank += 1
+
+    # その他の曲
     others_songs.sort(
         key=lambda s: s.user_score if s.user_score is not None else 0, reverse=True
     )
 
+    ranked_others_songs = []
+    prev_score = None
+    current_rank = 0
+    next_rank = 1
+
+    for song in others_songs:
+        if song.user_score != prev_score:
+            current_rank = next_rank
+        ranked_others_songs.append(
+            {
+                "song": song,
+                "rank": current_rank,
+                "user_score": song.user_score,
+            }
+        )
+        prev_score = song.user_score
+        next_rank += 1
+
     return render(
         request,
-        "songs/artist_ranking.html",
+        "songs/ranking.html",
         {
             "regions": regions,
-            "main_artists": main_artists,
-            "others_songs": others_songs,
+            "main_artists": ranked_main_artists,
+            "others_songs": ranked_others_songs,
             "top_n": top_n,
             "ranking_options": ranking_options,
             "region_id": region_id,
@@ -103,7 +153,7 @@ def artist_ranking_view(request):
 
 def get_artist_list(selected_user, region_id, top_n):
     rated_artist_ids = (
-        Artist.objects.filter(songs__ratings__user=selected_user)
+        Artist.objects.filter(songs__ratings__user=selected_user, songs__is_cover=0)
         .distinct()
         .values_list("id", flat=True)
     )
@@ -123,6 +173,7 @@ def get_artist_list(selected_user, region_id, top_n):
     user_rating_subquery = Rating.objects.filter(
         user=selected_user,
         song=OuterRef("pk"),
+        song__is_cover=0,
     ).values("score")[:1]
 
     for artist in artists:
@@ -153,9 +204,25 @@ def get_artist_list(selected_user, region_id, top_n):
             )
 
     main_artists.sort(key=lambda x: x["total_score"], reverse=True)
+
+    ranked_artists = []
+    prev_score = None
+    current_rank = 0
+    next_rank = 1  # 次に割り当てるべき順位
+
+    for artist_dict in main_artists:
+        score = artist_dict["total_score"]
+        if score != prev_score:
+            current_rank = next_rank  # 順位を更新
+        artist_dict["rank"] = current_rank
+        ranked_artists.append(artist_dict)
+
+        prev_score = score
+        next_rank += 1  # 次のループで使う順位（スキップあり）
+
     other_artists.sort(key=lambda x: (x["rated_count"], x["total_songs"]), reverse=True)
 
-    return main_artists, other_artists
+    return ranked_artists, other_artists
 
 
 @login_required
@@ -235,6 +302,65 @@ def song_list_view(request):
     )
 
 
+@login_required
+def artist_song_list_view(request, artist_id):
+    from .forms import InlineRatingForm  # 必要に応じて
+
+    artist = get_object_or_404(Artist, pk=artist_id)
+    user = request.user
+
+    user_score_subquery = Rating.objects.filter(user=user, song=OuterRef("pk")).values(
+        "score"
+    )[:1]
+
+    songs = list(
+        artist.songs.annotate(
+            user_score=Subquery(user_score_subquery, output_field=IntegerField())
+        ).select_related("artist")
+    )
+
+    # スコア降順 → タイトル昇順
+    songs.sort(key=lambda s: (-(s.user_score or -1), s.title))
+
+    # 順位付け（スキップあり）
+    ranked_songs = []
+    prev_score = None
+    current_rank = 0
+    next_rank = 1
+
+    rating_forms = {}
+
+    for song in songs:
+        if song.user_score != prev_score:
+            current_rank = next_rank
+        try:
+            rating = Rating.objects.get(user=user, song=song)
+        except Rating.DoesNotExist:
+            rating = None
+        form = InlineRatingForm(instance=rating, prefix=str(song.id))
+        rating_forms[song.id] = form
+
+        ranked_songs.append(
+            {
+                "song": song,
+                "rank": current_rank,
+                "user_score": song.user_score,
+            }
+        )
+        prev_score = song.user_score
+        next_rank += 1
+
+    return render(
+        request,
+        "songs/artist_song_list.html",
+        {
+            "artist": artist,
+            "songs": ranked_songs,
+            "rating_forms": rating_forms,
+        },
+    )
+
+
 @csrf_exempt  # 本番では CSRF トークンの使用を推奨
 @require_POST
 @login_required
@@ -274,11 +400,28 @@ def update_rating_view(request):
         return JsonResponse({"error": "指定された曲が存在しません"}, status=404)
 
 
+@require_POST
+@login_required
+def update_cover_view(request):
+    song_id = request.POST.get("song_id")
+    is_cover_str = request.POST.get("is_cover")
+    is_cover = is_cover_str == "true"
+
+    try:
+        song = Song.objects.get(pk=song_id)
+        song.is_cover = is_cover
+        song.save()
+        return JsonResponse({"success": True})
+    except Song.DoesNotExist:
+        return JsonResponse({"success": False, "error": "Song not found"})
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)})
+
+
 @login_required
 def bulk_add_view(request):
     regions = MusicRegion.objects.all()
     artists = Artist.objects.all().order_by("name")
-
     if request.method == "POST":
         user = request.user
 
@@ -344,18 +487,26 @@ def bulk_add_view(request):
         for i in range(1, 11):
             title = request.POST.get(f"song_title_{i}", "").strip()
             score = request.POST.get(f"song_score_{i}", "").strip()
+            is_cover = (
+                request.POST.get(f"song_is_cover_{i}") == "on"
+            )  # ← チェックされていれば True
 
             if not title:
                 continue  # 入力なしはスキップ
 
-            # 曲の取得または新規作成（重複チェック込み）
             song = Song.objects.filter(title=title, artist=artist).first()
             if not song:
                 try:
-                    song = Song.objects.create(title=title, artist=artist)
+                    song = Song.objects.create(
+                        title=title, artist=artist, is_cover=is_cover
+                    )
                 except IntegrityError:
                     song = Song.objects.get(title=title, artist=artist)
-            # 点数がある場合のみ評価を登録・更新
+            else:
+                # 既存曲ならフラグを更新しても良い（任意）
+                song.is_cover = is_cover
+                song.save()
+
             if score:
                 try:
                     score = int(score)
@@ -364,7 +515,7 @@ def bulk_add_view(request):
                             user=user, song=song, defaults={"score": score}
                         )
                 except ValueError:
-                    pass  # 無効な数値はスキップ
+                    pass
 
         return redirect("song_list")
 

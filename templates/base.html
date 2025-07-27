@@ -32,9 +32,6 @@
 
         <!-- 固定メニューバー -->
         <div class="navbar">
-            <div class="menu-mobile">
-                <button class="menu-toggle" aria-label="メニュー切り替え"><i class="fa-solid fa-bars"></i></button>
-            </div>
             <ul class="menu" id="menu">
                 <li><a href="/ranking/">歌手別TOP</a></li>
                 <li><a href="/artists/">歌手ランキング</a></li>
@@ -45,6 +42,11 @@
 
         <div class="content">
             {% block content %}{% endblock %}
+        </div>
+
+        <!-- 保存中オーバーレイ -->
+        <div id="overlay">
+            <div class="overlay-content">保存中です…</div>
         </div>
 
         <!-- JSはbodyの最後で読み込むべき！ -->
