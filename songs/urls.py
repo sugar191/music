@@ -10,11 +10,13 @@ from .views import (
     signup_view,
     missing_audio_files_view,
     artist_song_list_view,
+    song_ranking_view,
 )
 
 urlpatterns = [
     path("ranking/", ranking_view, name="ranking"),
     path("artists/", artist_list_view, name="artist_list"),
+    path("song_ranking/", song_ranking_view, name="song_ranking"),
     path("artists/<int:artist_id>/songs/", artist_song_list_view, name="artist_songs"),
     path("songs/", song_list_view, name="song_list"),
     path("update-rating/", update_rating_view, name="update_rating"),

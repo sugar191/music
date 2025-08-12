@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
@@ -12,18 +13,110 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 from mutagen.easyid3 import EasyID3
-from .models import Artist, Song, Rating, MusicRegion
+from .models import Artist, Song, Rating, MusicRegion, RankView
 from .forms import InlineRatingForm
+from .services import (
+    call_artist_song_top_n,
+    call_artist_insufficient_songs,
+    call_artist_top_n,
+    call_artist_insufficient,
+)
 
 MUSIC_DIR = r"C:\Users\pawab\Music"
 
 
+# 歌手別TOP
 @login_required
 def ranking_view(request):
+    # プルダウンの選択肢を取得
     ranking_options = [5, 7, 10]
     regions = MusicRegion.objects.all()
+    users = User.objects.all().order_by("username")
 
-    region_id = request.GET.get("region_id") or "1"
+    # 入力したパラメータを取得
+    if "region_id" not in request.GET:
+        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+    try:
+        top_n = int(request.GET.get("top_n", 5))
+    except ValueError:
+        top_n = 5
+
+    # 歌手別TOPを取得
+    top_n_data = call_artist_song_top_n(selected_user.id, top_n, region_id)
+    insufficient_data = call_artist_insufficient_songs(
+        selected_user.id, top_n, region_id
+    )
+
+    # artistごとに曲をグルーピング
+    grouped = defaultdict(list)
+    for row in top_n_data:
+        key = (
+            row["artist_rank"],
+            row["artist_id"],
+            row["artist_name"],
+            row["total_score"],
+        )
+        grouped[key].append(row)
+
+    # ソートしてリスト化
+    sorted_artists = sorted(grouped.items(), key=lambda x: x[0][0])
+
+    # 辞書リストに変換（テンプレートでわかりやすくアクセスできるように）
+    rankings = []
+    for key, songs in sorted_artists:
+        artist_rank, artist_id, artist_name, total_score = key
+        rankings.append(
+            {
+                "artist_rank": artist_rank,
+                "artist_id": artist_id,
+                "artist_name": artist_name,
+                "total_score": total_score,
+                "songs": songs,
+            }
+        )
+
+    return render(
+        request,
+        "songs/ranking.html",
+        {
+            "ranking_options": ranking_options,
+            "regions": regions,
+            "all_users": users,
+            "top_n": top_n,
+            "region_id": region_id,
+            "selected_user": selected_user,
+            "is_own_page": selected_user == request.user,
+            "rankings": rankings,
+            "insufficient_songs": insufficient_data,
+        },
+    )
+
+
+# 歌手ランキング
+@login_required
+def artist_list_view(request):
+    regions = MusicRegion.objects.all()
+    users = User.objects.all().order_by("username")
+
+    # 入力したパラメータを取得
+    if "region_id" not in request.GET:
+        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
     selected_user_id = request.GET.get("user")
     selected_user = (
         get_object_or_404(User, id=selected_user_id)
@@ -31,232 +124,53 @@ def ranking_view(request):
         else request.user
     )
 
-    try:
-        top_n = int(request.GET.get("top_n", 5))
-    except ValueError:
-        top_n = 5
-
-    rated_artist_ids = (
-        Artist.objects.filter(songs__ratings__user=selected_user, songs__is_cover=0)
-        .distinct()
-        .values_list("id", flat=True)
-    )
-
-    artists = Artist.objects.filter(id__in=rated_artist_ids)
-    if region_id:
-        try:
-            region_id_int = int(region_id)
-            artists = artists.filter(region_id=region_id_int)
-        except ValueError:
-            pass
-
-    main_artists = []
-    others_songs = []
-
-    user_rating_subquery = Rating.objects.filter(
-        user=selected_user, song=OuterRef("pk"), song__is_cover=0
-    ).values("score")[:1]
-
-    for artist in artists:
-        qs = artist.songs.annotate(
-            user_score=Subquery(user_rating_subquery, output_field=IntegerField())
-        ).filter(user_score__isnull=False)
-
-        songs_with_user_score = list(qs.order_by("-user_score")[:top_n])
-        total_score = sum(song.user_score for song in songs_with_user_score)
-        count_songs = len(songs_with_user_score)
-
-        if count_songs < top_n:
-            others_songs.extend(songs_with_user_score[:10])
-        else:
-            # 曲順位付け（スキップあり、同点同順位）
-            songs_with_rank = []
-            prev_score = None
-            current_rank = 0
-            next_rank = 1
-
-            for song in songs_with_user_score:
-                if song.user_score != prev_score:
-                    current_rank = next_rank
-                songs_with_rank.append(
-                    {
-                        "song": song,
-                        "rank": current_rank,
-                        "user_score": song.user_score,
-                    }
-                )
-                prev_score = song.user_score
-                next_rank += 1
-
-            main_artists.append(
-                {
-                    "artist": artist,
-                    "total_score": total_score,
-                    "top_songs": songs_with_rank,  # 曲の順位付き
-                }
-            )
-
-    # アーティスト順位付け（スキップあり）
-    main_artists.sort(key=lambda x: x["total_score"], reverse=True)
-    ranked_main_artists = []
-    prev_score = None
-    current_rank = 0
-    next_rank = 1
-
-    for artist_dict in main_artists:
-        if artist_dict["total_score"] != prev_score:
-            current_rank = next_rank
-        artist_dict["rank"] = current_rank
-        ranked_main_artists.append(artist_dict)
-        prev_score = artist_dict["total_score"]
-        next_rank += 1
-
-    # その他の曲
-    others_songs.sort(
-        key=lambda s: s.user_score if s.user_score is not None else 0, reverse=True
-    )
-
-    ranked_others_songs = []
-    prev_score = None
-    current_rank = 0
-    next_rank = 1
-
-    for song in others_songs:
-        if song.user_score != prev_score:
-            current_rank = next_rank
-        ranked_others_songs.append(
-            {
-                "song": song,
-                "rank": current_rank,
-                "user_score": song.user_score,
-            }
-        )
-        prev_score = song.user_score
-        next_rank += 1
-
-    return render(
-        request,
-        "songs/ranking.html",
-        {
-            "regions": regions,
-            "main_artists": ranked_main_artists,
-            "others_songs": ranked_others_songs,
-            "top_n": top_n,
-            "ranking_options": ranking_options,
-            "region_id": region_id,
-            "selected_user": selected_user,
-            "is_own_page": selected_user == request.user,
-            "all_users": User.objects.all().order_by("username"),
-        },
-    )
-
-
-def get_artist_list(selected_user, region_id, top_n):
-    rated_artist_ids = (
-        Artist.objects.filter(songs__ratings__user=selected_user, songs__is_cover=0)
-        .distinct()
-        .values_list("id", flat=True)
-    )
-    artists = Artist.objects.filter(id__in=rated_artist_ids)
-
-    # region_idが指定されていれば絞り込む
-    if region_id:
-        try:
-            region_id_int = int(region_id)
-            artists = artists.filter(region_id=region_id_int)
-        except ValueError:
-            pass  # region_idが不正な場合は無視
-
-    main_artists = []
-    other_artists = []
-
-    user_rating_subquery = Rating.objects.filter(
-        user=selected_user,
-        song=OuterRef("pk"),
-        song__is_cover=0,
-    ).values("score")[:1]
-
-    for artist in artists:
-        qs = artist.songs.annotate(
-            user_score=Subquery(user_rating_subquery, output_field=IntegerField()),
-        ).filter(user_score__isnull=False)
-
-        songs_with_user_score = qs.order_by("-user_score")[:top_n]
-        total_score = (
-            songs_with_user_score.aggregate(total=Sum("user_score"))["total"] or 0
-        )
-        count_songs = songs_with_user_score.count()
-
-        if count_songs >= top_n:
-            main_artists.append(
-                {
-                    "artist": artist,
-                    "total_score": total_score,
-                }
-            )
-        else:
-            other_artists.append(
-                {
-                    "artist": artist,
-                    "rated_count": count_songs,
-                    "total_songs": artist.songs.count(),
-                }
-            )
-
-    main_artists.sort(key=lambda x: x["total_score"], reverse=True)
-
-    ranked_artists = []
-    prev_score = None
-    current_rank = 0
-    next_rank = 1  # 次に割り当てるべき順位
-
-    for artist_dict in main_artists:
-        score = artist_dict["total_score"]
-        if score != prev_score:
-            current_rank = next_rank  # 順位を更新
-        artist_dict["rank"] = current_rank
-        ranked_artists.append(artist_dict)
-
-        prev_score = score
-        next_rank += 1  # 次のループで使う順位（スキップあり）
-
-    other_artists.sort(key=lambda x: (x["rated_count"], x["total_songs"]), reverse=True)
-
-    return ranked_artists, other_artists
-
-
-@login_required
-def artist_list_view(request):
-    regions = MusicRegion.objects.all()
-    region_id = request.GET.get("region_id")
-    if region_id is None:
-        region_id = "1"  # 初期値として邦楽 (id=1)
-    selected_user_id = request.GET.get("user")
-    if selected_user_id:
-        selected_user = get_object_or_404(User, id=selected_user_id)
-    else:
-        selected_user = request.user
-
-    top5, other_artists = get_artist_list(selected_user, region_id, 5)
-    top7, _ = get_artist_list(selected_user, region_id, 7)
-    top10, _ = get_artist_list(selected_user, region_id, 10)
+    top5 = call_artist_top_n(selected_user.id, 5, region_id)
+    top7 = call_artist_top_n(selected_user.id, 7, region_id)
+    top10 = call_artist_top_n(selected_user.id, 10, region_id)
+    other_artists = call_artist_insufficient(selected_user.id, 5, region_id)
 
     return render(
         request,
         "songs/artist_list.html",
         {
+            "regions": regions,
+            "all_users": users,
+            "region_id": region_id,
+            "selected_user": selected_user,
             "top5": top5,
             "top7": top7,
             "top10": top10,
             "other_artists": other_artists,
-            "regions": regions,
-            "region_id": region_id,
-            "selected_user": selected_user,
-            "all_users": User.objects.all().order_by("username"),
         },
     )
 
 
+@login_required
+def song_ranking_view(request):
+    users = User.objects.all().order_by("username")
+
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+
+    songs = RankView.objects.filter(user_id=selected_user.id)
+
+    return render(
+        request,
+        "songs/song_ranking.html",
+        {
+            "users": users,
+            "selected_user": selected_user,
+            "songs": songs,
+            "is_own_page": selected_user == request.user,
+        },
+    )
+
+
+# 採点
 @login_required
 def song_list_view(request):
     query = request.GET.get("q", "")
@@ -302,6 +216,7 @@ def song_list_view(request):
     )
 
 
+# 歌手の曲リスト
 @login_required
 def artist_song_list_view(request, artist_id):
     from .forms import InlineRatingForm  # 必要に応じて
@@ -418,6 +333,7 @@ def update_cover_view(request):
         return JsonResponse({"success": False, "error": str(e)})
 
 
+# 曲追加
 @login_required
 def bulk_add_view(request):
     regions = MusicRegion.objects.all()

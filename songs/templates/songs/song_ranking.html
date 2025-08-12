@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% load get_item %}
+{% load static %}
+{% block title %}全曲TOP{% endblock %}
+{% block content %}
+<!-- ユーザー選択プルダウン -->
+    <div class="top-bar">
+        <form method="get" action="{% url 'song_ranking' %}">
+            <select name="user" id="user" onchange="this.form.submit()">
+                {% for user in users %}
+                    <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
+                        {{ user.username }}
+                    </option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+    <div class="table-area">
+        <table>
+            <tbody>
+                {% for song in songs %}
+                    <tr>
+                        <td class="count-cell">{{ song.rank_all }}位</td>
+                        <td class="pc-cell">
+                            <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
+                        </td>
+                        <td class="pc-cell">
+                            <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
+                        </td>
+                        <td class="mobile-cell">
+                            <div><a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a></div>
+                            <div><a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a></div>
+                        </td>
+                        <td class="score-cell">
+                            {% if is_own_page %}
+                                <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}">
+                                    {{ song.score }}
+                                </span>
+                            {% else %}
+                                {{ song.score }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <!-- モーダル -->
+    <div id="scoreModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>点数を入力</h3>
+            <input type="number" id="scoreInput" min="0" max="100" class="score-input">
+            <button id="saveScoreBtn">保存</button>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_js %}
+{{ block.super }}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const modal = document.getElementById("scoreModal");
+        const scoreInput = document.getElementById("scoreInput");
+        const saveBtn = document.getElementById("saveScoreBtn");
+        const closeBtn = document.querySelector(".close");
+
+        let currentSongId = null;
+
+        document.querySelectorAll(".editable-score").forEach(span => {
+            span.addEventListener("click", function () {
+                currentSongId = this.dataset.songId;
+                scoreInput.value = this.dataset.currentScore;
+                modal.style.display = "block";
+            });
+        });
+
+        closeBtn.onclick = () => { modal.style.display = "none"; };
+        window.onclick = (e) => { if (e.target == modal) modal.style.display = "none"; };
+
+        saveBtn.addEventListener("click", function () {
+            const score = scoreInput.value;
+
+            showOverlay(); // 処理開始
+
+            fetch("{% url 'update_rating' %}", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-CSRFToken": "{{ csrf_token }}",
+                },
+                body: `song_id=${currentSongId}&score=${score}`,
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    modal.style.display = "none";
+                    location.reload();  // ランキング再描画
+                } else {
+                    alert("保存失敗：" + data.error);
+                }
+            })
+            .catch(error => {
+                alert("通信エラー");
+                console.error(error);
+            });
+        });
+    });
+</script>
+{% endblock %}

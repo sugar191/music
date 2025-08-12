@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load get_item %}
-{% block title %}ランキング{% endblock %}
+{% block title %}歌手別TOP{% endblock %}
 {% block content %}
 <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
@@ -27,32 +27,32 @@
         </form>
     </div>
     <div class="artist-grid">
-        {% for entry in main_artists %}
+        {% for row in rankings %}
             <div class="artist-card">
                 <table>
                     <thead>
-                        <th class="count-cell">{{ entry.rank }}位</th>
-                        <th><a href="{% url 'artist_songs' entry.artist.id %}">{{ entry.artist.name }}</a></th>
-                        <th class="score-cell">{{ entry.total_score|floatformat:0 }}</th>
+                        <th class="count-cell">{{ row.artist_rank }}位</th>
+                        <th><a href="{% url 'artist_songs' row.artist_id %}">{{ row.artist_name }}</a></th>
+                        <th class="score-cell">{{ row.total_score|floatformat:0 }}</th>
                     </thead>
                     <tbody>
-                        {% for song in entry.top_songs %}
+                        {% for song in row.songs %}
                         <tr>
                             <td class="count-cell">
-                                {{ song.rank }}位
+                                {{ song.rank_artist }}位
                             </td>
                             <td>
-                                <a href="https://www.youtube.com/results?search_query={{ song.song.artist.name|urlencode }}+{{ song.song.title|urlencode }}" target="_blank" rel="noopener noreferrer">
-                                        {{ song.song.title }}
+                                <a href="https://www.youtube.com/results?search_query={{ row.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                                        {{ song.song_title }}
                                 </a>
                             </td>
                             <td class="score-cell">
                                 {% if is_own_page %}
-                                    <span class="editable-score" data-song-id="{{ song.song.id }}" data-current-score="{{ song.user_score }}">
-                                        {{ song.user_score }}
+                                    <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}">
+                                        {{ song.score }}
                                     </span>
                                 {% else %}
-                                    {{ song.user_score }}
+                                    {{ song.score }}
                                 {% endif %}
                             </td>
                         </tr>
@@ -66,26 +66,26 @@
         <div class="artist-card-header">その他</div>
         <table border="1" cellspacing="0" cellpadding="5">
             <tbody>
-                {% for song in others_songs %}
+                {% for song in insufficient_songs %}
                 <tr>
-                    <td class="count-cell">{{ song.rank }}位</td>
+                    <td class="count-cell">{{ song.rank_within_insufficient }}位</td>
                     <td class="pc-cell">
-                        <a href="{% url 'artist_songs' song.song.artist.id %}">{{ song.song.artist.name }}</a>
+                        <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
                     </td>
                     <td class="pc-cell">
-                        <a href="https://www.youtube.com/results?search_query={{ song.song.artist.name|urlencode }}+{{ song.song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song.title }}</a>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
                     </td>
                     <td class="mobile-cell">
-                        <div><a href="https://www.youtube.com/results?search_query={{ song.song.artist.name|urlencode }}+{{ song.song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song.title }}</a></div>
-                        <div><a href="{% url 'artist_songs' song.song.artist.id %}">{{ song.song.artist.name }}</a></div>
+                        <div><a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a></div>
+                        <div><a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a></div>
                     </td>
                     <td class="score-cell">
                         {% if is_own_page %}
-                            <span class="editable-score" data-song-id="{{ song.song.id }}" data-current-score="{{ song.user_score }}">
-                                {{ song.user_score }}
+                            <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}">
+                                {{ song.score }}
                             </span>
                         {% else %}
-                            {{ song.user_score }}
+                            {{ song.score }}
                         {% endif %}
                     </td>
                 </tr>

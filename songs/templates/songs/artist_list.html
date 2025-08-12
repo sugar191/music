@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load get_item %}
 {% load static %}
-{% block title %}歌手一覧{% endblock %}
+{% block title %}歌手TOP{% endblock %}
 {% block content %}
 <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
@@ -28,8 +28,8 @@
                 <tbody>
                     {% for artist_score in top5 %}
                         <tr>
-                            <td class="count-cell">{{ artist_score.rank }}位</td>
-                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist.id %}">{{ artist_score.artist.name }}</a></div></td>
+                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
@@ -42,8 +42,8 @@
                 <tbody>
                     {% for artist_score in top7 %}
                         <tr>
-                            <td class="count-cell">{{ artist_score.rank }}位</td>
-                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist.id %}">{{ artist_score.artist.name }}</a></div></td>
+                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
@@ -56,8 +56,8 @@
                 <tbody>
                     {% for artist_score in top10 %}
                         <tr>
-                            <td class="score-cell">{{ artist_score.rank }}位</td>
-                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist.id %}">{{ artist_score.artist.name }}</a></div></td>
+                            <td class="score-cell">{{ artist_score.artist_rank }}位</td>
+                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
                     {% endfor %}
@@ -70,7 +70,7 @@
                 <tbody>
                     {% for artist_score in other_artists %}
                         <tr>
-                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist.id %}">{{ artist_score.artist.name }}</a></div></td>
+                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.id %}">{{ artist_score.name }}</a></div></td>
                             <td class="count-cell border_right_none">{{ artist_score.rated_count }}/</td>
                             <td class="count-cell border_left_none">{{ artist_score.total_songs }}曲</td>
                         </tr>
