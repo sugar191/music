@@ -367,7 +367,7 @@ def bulk_add_view(request):
                     {
                         "artists": artists,
                         "regions": regions,
-                        "range10": range(1, 11),  # ★ 忘れずに渡す
+                        "range20": range(1, 21),  # ★ 忘れずに渡す
                         "error": "新しい歌手名を登録する場合、地域を選択してください。",
                     },
                 )
@@ -380,7 +380,7 @@ def bulk_add_view(request):
                     {
                         "artists": artists,
                         "regions": regions,
-                        "range10": range(1, 11),  # ← ここを必ず追加
+                        "range20": range(1, 21),  # ← ここを必ず追加
                         "error": "選択された地域が存在しません。",
                     },
                 )
@@ -394,13 +394,13 @@ def bulk_add_view(request):
                 {
                     "artists": artists,
                     "regions": regions,
-                    "range10": range(1, 11),  # ← ここを必ず追加
+                    "range20": range(1, 21),  # ← ここを必ず追加
                     "error": "歌手を選択するか新規入力してください。",
                 },
             )
 
-        # --- 曲と点数を処理（最大10曲） ---
-        for i in range(1, 11):
+        # --- 曲と点数を処理（最大20曲） ---
+        for i in range(1, 21):
             title = request.POST.get(f"song_title_{i}", "").strip()
             score = request.POST.get(f"song_score_{i}", "").strip()
             is_cover = (
@@ -441,7 +441,7 @@ def bulk_add_view(request):
         {
             "artists": artists,
             "regions": regions,
-            "range10": range(1, 11),
+            "range20": range(1, 21),
         },
     )
 
