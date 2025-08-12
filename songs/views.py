@@ -29,7 +29,7 @@ MUSIC_DIR = r"C:\Users\pawab\Music"
 @login_required
 def ranking_view(request):
     # プルダウンの選択肢を取得
-    ranking_options = [5, 7, 10]
+    ranking_options = [5, 7, 10, 15]
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
@@ -125,8 +125,8 @@ def artist_list_view(request):
     )
 
     top5 = call_artist_top_n(selected_user.id, 5, region_id)
-    top7 = call_artist_top_n(selected_user.id, 7, region_id)
     top10 = call_artist_top_n(selected_user.id, 10, region_id)
+    top15 = call_artist_top_n(selected_user.id, 15, region_id)
     other_artists = call_artist_insufficient(selected_user.id, 5, region_id)
 
     return render(
@@ -138,8 +138,8 @@ def artist_list_view(request):
             "region_id": region_id,
             "selected_user": selected_user,
             "top5": top5,
-            "top7": top7,
             "top10": top10,
+            "top15": top15,
             "other_artists": other_artists,
         },
     )

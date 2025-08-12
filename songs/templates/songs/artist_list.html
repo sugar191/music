@@ -37,12 +37,12 @@
             </table>
         </div>
         <div class="artist-card">
-            <div class="artist-card-header">TOP7</div>
+            <div class="artist-card-header">TOP10</div>
             <table>
                 <tbody>
-                    {% for artist_score in top7 %}
+                    {% for artist_score in top10 %}
                         <tr>
-                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td class="score-cell">{{ artist_score.artist_rank }}位</td>
                             <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
@@ -51,12 +51,12 @@
             </table>
         </div>
         <div class="artist-card">
-            <div class="artist-card-header">TOP10</div>
+            <div class="artist-card-header">TOP15</div>
             <table>
                 <tbody>
-                    {% for artist_score in top10 %}
+                    {% for artist_score in top15 %}
                         <tr>
-                            <td class="score-cell">{{ artist_score.artist_rank }}位</td>
+                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
                             <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
