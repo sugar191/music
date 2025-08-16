@@ -231,11 +231,13 @@ def artist_song_list_view(request, artist_id):
     songs = list(
         artist.songs.annotate(
             user_score=Subquery(user_score_subquery, output_field=IntegerField())
-        ).select_related("artist")
+        )
+        .select_related("artist")
+        .order_by("-user_score", Lower("title"))
     )
 
     # スコア降順 → タイトル昇順
-    songs.sort(key=lambda s: (-(s.user_score or -1), s.title))
+    # songs.sort(key=lambda s: (-(s.user_score or -1), s.title))
 
     # 順位付け（スキップあり）
     ranked_songs = []
