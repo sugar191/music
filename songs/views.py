@@ -1,13 +1,13 @@
 import os
 from collections import defaultdict
-from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Q, Sum, OuterRef, Subquery, IntegerField
+from django.db.models import Q, OuterRef, Subquery, IntegerField, Count
+from django.db.models.functions import Lower, Substr
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
@@ -338,6 +338,21 @@ def update_cover_view(request):
 def bulk_add_view(request):
     regions = MusicRegion.objects.all()
     artists = Artist.objects.all().order_by("name")
+
+    # ① GETのartist_idを受け取り
+    selected_artist_id = request.GET.get("artist_id") or ""
+    selected_region_id = ""
+
+    # ② artist_id から region も決めておく（あれば）
+    if selected_artist_id:
+        try:
+            sel_artist = Artist.objects.select_related("region").get(
+                id=selected_artist_id
+            )
+            selected_region_id = str(sel_artist.region_id)
+        except Artist.DoesNotExist:
+            selected_artist_id = ""  # 変なIDなら無視
+
     if request.method == "POST":
         user = request.user
 
@@ -354,6 +369,7 @@ def bulk_add_view(request):
                     request,
                     "songs/bulk_add.html",
                     {
+                        "artist_id": artist_id,
                         "artists": artists,
                         "regions": regions,
                         "error": "選択された歌手が存在しません。",
@@ -365,6 +381,7 @@ def bulk_add_view(request):
                     request,
                     "songs/bulk_add.html",
                     {
+                        "artist_id": artist_id,
                         "artists": artists,
                         "regions": regions,
                         "range20": range(1, 21),  # ★ 忘れずに渡す
@@ -378,6 +395,7 @@ def bulk_add_view(request):
                     request,
                     "songs/bulk_add.html",
                     {
+                        "artist_id": artist_id,
                         "artists": artists,
                         "regions": regions,
                         "range20": range(1, 21),  # ← ここを必ず追加
@@ -392,6 +410,7 @@ def bulk_add_view(request):
                 request,
                 "songs/bulk_add.html",
                 {
+                    "artist_id": artist_id,
                     "artists": artists,
                     "regions": regions,
                     "range20": range(1, 21),  # ← ここを必ず追加
@@ -439,6 +458,9 @@ def bulk_add_view(request):
         request,
         "songs/bulk_add.html",
         {
+            # テンプレで使う
+            "selected_artist_id": str(selected_artist_id),
+            "selected_region_id": str(selected_region_id),
             "artists": artists,
             "regions": regions,
             "range20": range(1, 21),
@@ -503,5 +525,70 @@ def missing_audio_files_view(request):
             "missing_songs": missing_songs,
             "rating_dict": rating_dict,
             "user_id": user_id,
+        },
+    )
+
+
+# 歌手検索
+@login_required
+def artist_search_view(request):
+    regions = MusicRegion.objects.all()
+
+    # 入力したパラメータを取得
+    if "region_id" not in request.GET:
+        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
+    # 動的条件（例：?region=1&prefix=A）
+    prefix = request.GET.get("prefix")  # 先頭文字（A など）
+    # user_id は現在ログインユーザーを利用（固定の1ではない）
+    user = request.user
+
+    filter_top = request.GET.get("top")  # '5', '10', '15' のいずれか
+
+    qs = Artist.objects.select_related("region").annotate(
+        # COUNT(1) song_count
+        song_count=Count("songs", filter=Q(songs__is_cover=False), distinct=True),
+        # SUM(CASE WHEN r.id IS NULL THEN 0 ELSE 1 END) rating_count
+        # => ユーザーでフィルタした Rating を Count
+        rating_count=Count(
+            "songs__ratings",
+            filter=Q(songs__is_cover=False, songs__ratings__user=user),
+            distinct=True,
+        ),
+    )
+
+    if region_id:
+        qs = qs.filter(region_id=region_id)
+
+    if prefix:
+        # a.name LIKE 'A%'（大文字小文字を吸収するなら istartswith）
+        qs = qs.filter(name__istartswith=prefix)
+    else:
+        prefix = ""
+
+    # ORDER BY UPPER(a.name) 相当 → Lower()でケース無視ソート
+    qs = qs.order_by(Lower("name"))
+
+    # プルダウンの条件
+    if filter_top in ["5", "10", "15"]:
+        n = int(filter_top)
+        qs = qs.filter(song_count__gte=n, rating_count__lt=n)
+    # ページング（任意）
+    # from django.core.paginator import Paginator
+    # page_obj = Paginator(qs, 50).get_page(request.GET.get("page"))
+
+    return render(
+        request,
+        "songs/artist_search.html",
+        {
+            "artists": qs,  # or "page_obj": page_obj
+            "regions": regions,
+            "region_id": region_id,
+            "prefix": prefix,
+            "top": filter_top,
         },
     )

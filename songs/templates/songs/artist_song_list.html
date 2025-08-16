@@ -4,6 +4,7 @@
 {% block title %}{{ artist.name }}の曲一覧{% endblock %}
 {% block content %}
 <div>{{ artist.name }} の曲一覧</div>
+<div><a href="{% url 'bulk_add_songs' %}?artist_id={{ artist.id }}">曲追加</a></div>
 
 <table>
     <thead>

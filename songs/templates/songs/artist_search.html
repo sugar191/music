@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% load get_item %}
+{% load static %}
+{% block title %}検索{% endblock %}
+{% block content %}
+    <!-- ユーザー選択プルダウン -->
+    <div class="top-bar">
+        <form method="get" action="{% url 'artist_search' %}">
+            <input type="text" name="prefix" placeholder="検索" value="{{ prefix }}" style="flex: 1;" onchange="this.form.submit()">
+            <select name="region_id" id="region-select" onchange="this.form.submit()">
+                <option value="" {% if not region_id %}selected{% endif %}>全て</option>
+                {% for r in regions %}
+                    <option value="{{ r.id }}" {% if r.id|stringformat:"s" == region_id %}selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
+            <select id="top" name="top" onchange="this.form.submit()">
+                <option value="">採点</option>
+                <option value="5"  {% if request.GET.top == '5' %}selected{% endif %}>~5曲</option>
+                <option value="10" {% if request.GET.top == '10' %}selected{% endif %}>~10曲</option>
+                <option value="15" {% if request.GET.top == '15' %}selected{% endif %}>~15曲</option>
+            </select>
+        </form>
+    </div>
+    <div class="table-area">
+        <table>
+            <tbody>
+                <tr>
+                    <th>歌手名</th>
+                    <th>採点</th>
+                    <th>曲数</th>
+                </tr>
+                {% for artist in artists %}
+                    <tr>
+                        <td><a href="{% url 'artist_songs' artist.id %}">{{ artist.name }}</a></td>
+                        <td class="count-cell">{{ artist.rating_count }}</td>
+                        <td class="count-cell"><a href="{% url 'bulk_add_songs' %}?artist_id={{ artist.id }}">{{ artist.song_count }}</a></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

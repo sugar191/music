@@ -13,7 +13,10 @@
             <select name="region_id" id="region-select">
                 <option value="">-- 選択 --</option>
                 {% for r in regions %}
-                    <option value="{{ r.id }}">{{ r.name }}</option>
+                    <option value="{{ r.id }}"
+                        {% if selected_region_id == r.id|stringformat:"s" %}selected{% endif %}>
+                        {{ r.name }}
+                    </option>
                 {% endfor %}
             </select>
         </div>
@@ -25,7 +28,8 @@
                 {% for artist in artists %}
                     <option value="{{ artist.id }}"
                             data-name="{{ artist.name|lower }}"
-                            data-region-id="{{ artist.region.id }}">
+                            data-region-id="{{ artist.region.id }}"
+                            {% if selected_artist_id == artist.id|stringformat:"s" %}selected{% endif %}>
                         {{ artist.name }}
                     </option>
                 {% endfor %}
@@ -51,43 +55,40 @@
 {% block extra_js %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    const regionSelect = document.getElementById("region-select");
-    const artistInput = document.getElementById("artist-name-input");
-    const artistSelect = document.getElementById("artist-select");
+  const regionSelect = document.getElementById("region-select");
+  const artistSelect = document.getElementById("artist-select");
+  const artistInput  = document.getElementById("artist-name-input");
 
-    function filterArtistsByRegion(regionId) {
-        Array.from(artistSelect.options).forEach(option => {
-            if (!option.value) return;
-            const artistRegionId = option.dataset.regionId;
-            option.style.display = (regionId === "" || artistRegionId === regionId) ? "block" : "none";
-        });
-    }
-
-    regionSelect.addEventListener("change", function () {
-        filterArtistsByRegion(this.value);
+  function filterArtistsByRegion(regionId) {
+    Array.from(artistSelect.options).forEach(option => {
+      if (!option.value) return;
+      const artistRegionId = option.dataset.regionId;
+      option.style.display = (regionId === "" || artistRegionId === regionId) ? "block" : "none";
     });
+  }
 
-    artistInput.addEventListener("input", function () {
-        const inputName = artistInput.value.trim().toLowerCase();
-        if (!inputName) return;
+  regionSelect.addEventListener("change", function () {
+    filterArtistsByRegion(this.value);
+  });
 
-        let matched = false;
-        Array.from(artistSelect.options).forEach(option => {
-            const artistName = option.dataset.name;
-            if (artistName && artistName === inputName) {
-                option.selected = true;
-                regionSelect.value = option.dataset.regionId;  // regionも反映
-                matched = true;
-            }
-        });
-
-        if (matched) {
-            artistInput.value = "";
-        }
+  artistInput.addEventListener("input", function () {
+    const inputName = artistInput.value.trim().toLowerCase();
+    if (!inputName) return;
+    let matched = false;
+    Array.from(artistSelect.options).forEach(option => {
+      const artistName = option.dataset.name;
+      if (artistName && artistName === inputName) {
+        option.selected = true;
+        regionSelect.value = option.dataset.regionId;
+        filterArtistsByRegion(regionSelect.value);  // ← region変更に追随
+        matched = true;
+      }
     });
+    if (matched) artistInput.value = "";
+  });
 
-    // 初期表示で選ばれているregionに基づいて絞り込み
-    filterArtistsByRegion(regionSelect.value);
+  // 初期表示：まずregionで絞り込み→selectedのartistが見える状態に
+  filterArtistsByRegion(regionSelect.value);
 });
 </script>
 {% endblock %}

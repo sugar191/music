@@ -3,7 +3,7 @@
 {% load static %}
 {% block title %}歌手TOP{% endblock %}
 {% block content %}
-<!-- ユーザー選択プルダウン -->
+    <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
         <form method="get" action="{% url 'artist_list' %}">
             <select name="user" id="user" onchange="this.form.submit()">
