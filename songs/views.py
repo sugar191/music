@@ -6,7 +6,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Q, OuterRef, Subquery, IntegerField, Count
+from django.db.models import F, Q, OuterRef, Subquery, IntegerField, Count
 from django.db.models.functions import Lower, Substr
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
@@ -454,7 +454,7 @@ def bulk_add_view(request):
                 except ValueError:
                     pass
 
-        return redirect("song_list")
+        return redirect("artist_songs", artist_id=artist.id)
 
     return render(
         request,
@@ -579,6 +579,8 @@ def artist_search_view(request):
     if filter_top in ["5", "10", "15"]:
         n = int(filter_top)
         qs = qs.filter(song_count__gte=n, rating_count__lt=n)
+    elif filter_top == "0":
+        qs = qs.filter(song_count__gt=F("rating_count"))
     # ページング（任意）
     # from django.core.paginator import Paginator
     # page_obj = Paginator(qs, 50).get_page(request.GET.get("page"))

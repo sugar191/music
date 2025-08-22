@@ -6,7 +6,7 @@
     <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
         <form method="get" action="{% url 'artist_search' %}">
-            <input type="text" name="prefix" placeholder="検索" value="{{ prefix }}" style="flex: 1;" onchange="this.form.submit()">
+            <input type="text" name="prefix" placeholder="検索" value="{{ prefix }}" style="flex: 1; width:150px;" onchange="this.form.submit()">
             <select name="region_id" id="region-select" onchange="this.form.submit()">
                 <option value="" {% if not region_id %}selected{% endif %}>全て</option>
                 {% for r in regions %}
@@ -15,6 +15,7 @@
             </select>
             <select id="top" name="top" onchange="this.form.submit()">
                 <option value="">採点</option>
+                <option value="0"  {% if request.GET.top == '0' %}selected{% endif %}>未採点あり</option>
                 <option value="5"  {% if request.GET.top == '5' %}selected{% endif %}>~5曲</option>
                 <option value="10" {% if request.GET.top == '10' %}selected{% endif %}>~10曲</option>
                 <option value="15" {% if request.GET.top == '15' %}selected{% endif %}>~15曲</option>

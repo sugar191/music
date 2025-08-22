@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Artist, Song, Rating
+from .models import Artist, Song, Rating, MusicRegion
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
 
@@ -7,6 +7,16 @@ from import_export.admin import ImportExportModelAdmin
 # 共通のベース管理クラス
 class BaseResourceAdmin(ImportExportModelAdmin):
     pass
+
+
+class MusicRegionResource(resources.ModelResource):
+    class Meta:
+        model = MusicRegion
+
+
+class MusicRegionAdmin(BaseResourceAdmin):
+    resource_class = MusicRegionResource
+    search_fields = ["name"]
 
 
 class ArtistResource(resources.ModelResource):
@@ -41,6 +51,7 @@ class RatingAdmin(BaseResourceAdmin):
     search_fields = ["user__username", "song__title", "song__artist__name"]
 
 
+admin.site.register(MusicRegion, MusicRegionAdmin)
 admin.site.register(Artist, ArtistAdmin)
 admin.site.register(Song, SongAdmin)
 admin.site.register(Rating, RatingAdmin)

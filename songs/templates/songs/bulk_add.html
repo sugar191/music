@@ -40,13 +40,24 @@
         </div>
 
         曲名と点数（最大20曲）
-        {% for i in range20 %}
-            <div style="margin-bottom: 5px;">
-                <input type="text" name="song_title_{{ i }}" placeholder="曲名">
-                <input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数" class="score-input">
-                <input type="checkbox" name="song_is_cover_{{ i }}">カバー
-            </div>
-        {% endfor %}
+        <table>
+          <thead>
+            <tr>
+              <th>曲名</th>
+              <th>点数</th>
+              <th>カバー</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for i in range20 %}
+              <tr>
+                <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
+                <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数" class="score-input"></td>
+                <td><input type="checkbox" name="song_is_cover_{{ i }}"></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
 
         <button type="submit">登録</button>
     </form>
