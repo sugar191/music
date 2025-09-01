@@ -42,38 +42,33 @@ class RatingSerializer(serializers.ModelSerializer):
 class SongLookupCreateSerializer(serializers.Serializer):
     artist = serializers.CharField(max_length=100)
     title = serializers.CharField(max_length=100)
-    # 使わないが互換のため残す
     region_code = serializers.CharField(
         max_length=10, required=False, allow_null=True, allow_blank=True
     )
     is_cover = serializers.BooleanField(required=False, allow_null=True)
 
     def lookup_only(self, validated):
-        """地域を無視して、artist.name と song.title の組み合わせだけで厳密に探す。大小無視。"""
         artist_name = validated["artist"].strip()
         title = validated["title"].strip()
 
-        # name__iexact / title__iexact で大小無視（地域は完全に無視）
-        from .models import Artist, Song
-
-        artists = Artist.objects.filter(name__iexact=artist_name)
-        songs = Song.objects.filter(
-            title__iexact=title, artist__in=artists
-        ).select_related("artist")
-
-        count = songs.count()
-        if count == 1:
-            s = songs.first()
+        # ★ 地域を完全に無視し、artist.name と song.title の組み合わせだけを大小無視で検索
+        qs = (
+            Song.objects.select_related("artist")
+            .filter(artist__name__iexact=artist_name, title__iexact=title)
+            .order_by("id")
+        )
+        cnt = qs.count()
+        if cnt == 1:
+            s = qs.first()
             return {
                 "song_id": s.id,
                 "artist_id": s.artist_id,
                 "created": {"region": False, "artist": False, "song": False},
             }
-        elif count == 0:
-            # 見つからない
+        elif cnt == 0:
             raise serializers.ValidationError({"detail": "not_found"})
         else:
-            # 複数一致（地域違い・重複など）
+            # 同名アーティスト（地域違い等）で複数候補があるケース
             raise serializers.ValidationError(
                 {
                     "detail": "multiple_matches",
@@ -84,32 +79,35 @@ class SongLookupCreateSerializer(serializers.Serializer):
                             "artist": s.artist.name,
                             "title": s.title,
                         }
-                        for s in songs[:20]  # 多すぎると重いので上限
+                        for s in qs[:20]
                     ],
                 }
             )
 
     def create(self, validated):
-        """互換のため残す: create=true の時だけ呼ぶ。地域は使わず、artist(region=None) に紐づけて作成。"""
-        from .models import MusicRegion, Artist, Song
+        """
+        ?create=true のときだけ呼ばれる想定。
+        作る前に lookup_only を必ず試し、既存があればそれを返す。
+        地域は使わず region=None 固定で作成。
+        """
+        try:
+            return self.lookup_only(validated)
+        except serializers.ValidationError as e:
+            if not (
+                isinstance(e.detail, dict) and e.detail.get("detail") == "not_found"
+            ):
+                raise  # multiple_matches 等はそのまま上げる
+
+        from .models import Artist
 
         artist_name = validated["artist"].strip()
         title = validated["title"].strip()
         is_cover = validated.get("is_cover", None)
 
-        # まず lookup を試す（既存があればそれを返す）
-        try:
-            return self.lookup_only(validated)
-        except serializers.ValidationError as e:
-            # not_found のときだけ作成、それ以外（multiple）はそのまま投げる
-            if not isinstance(e.detail, dict) or e.detail.get("detail") != "not_found":
-                raise
-
-        # 地域は使わない: region=None 固定
-        artist, created_artist = Artist.objects.get_or_create(
+        artist, c_artist = Artist.objects.get_or_create(
             name=artist_name, region=None, defaults={"format_name": artist_name}
         )
-        song, created_song = Song.objects.get_or_create(
+        song, c_song = Song.objects.get_or_create(
             title=title,
             artist=artist,
             defaults={"format_title": title, "is_cover": is_cover},
@@ -121,9 +119,5 @@ class SongLookupCreateSerializer(serializers.Serializer):
         return {
             "song_id": song.id,
             "artist_id": artist.id,
-            "created": {
-                "region": False,
-                "artist": created_artist,
-                "song": created_song,
-            },
+            "created": {"region": False, "artist": c_artist, "song": c_song},
         }
