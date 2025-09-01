@@ -88,6 +88,36 @@ class SongLookupCreateSerializer(serializers.Serializer):
                 }
             )
 
+        # 2) 正規化フィールドで一致（ここが効く: 40メートルP/40㍍P/40mP 等）
+        norm_qs = Song.objects.select_related("artist").filter(
+            artist__format_name__iexact=in_artist, format_title__iexact=in_title
+        )
+        c2 = norm_qs.count()
+        if c2 == 1:
+            s = norm_qs.first()
+            return {
+                "song_id": s.id,
+                "artist_id": s.artist_id,
+                "created": {"region": False, "artist": False, "song": False},
+            }
+        if c2 > 1:
+            raise serializers.ValidationError(
+                {
+                    "detail": "multiple_matches",
+                    "candidates": [
+                        {"song_id": x.id, "artist": x.artist.name, "title": x.title}
+                        for x in norm_qs[:50]
+                    ],
+                }
+            )
+
+        raise serializers.ValidationError(
+            {
+                "detail": "not_found",
+                "echo": {"artist_in": in_artist, "title_in": in_title},
+            }
+        )
+
         # ゆるめ検索の候補（見つからない時のヒント用・作成はしない）
         qs2 = (
             Song.objects.select_related("artist")
