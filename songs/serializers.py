@@ -53,8 +53,8 @@ class SongLookupCreateSerializer(serializers.Serializer):
     is_cover = serializers.BooleanField(required=False, allow_null=True)
 
     def lookup_only(self, validated):
-        in_artist = _norm(validated["artist"])
-        in_title = _norm(validated["title"])
+        in_artist = validated["artist"]
+        in_title = validated["title"]
 
         # ★ 地域は完全に無視。artist.name と song.title の組み合わせだけで大小無視で一致
         qs = (
@@ -108,37 +108,6 @@ class SongLookupCreateSerializer(serializers.Serializer):
                         {"song_id": x.id, "artist": x.artist.name, "title": x.title}
                         for x in norm_qs[:50]
                     ],
-                }
-            )
-
-        raise serializers.ValidationError(
-            {
-                "detail": "not_found",
-                "echo": {"artist_in": in_artist, "title_in": in_title},
-            }
-        )
-
-        # ゆるめ検索の候補（見つからない時のヒント用・作成はしない）
-        qs2 = (
-            Song.objects.select_related("artist")
-            .filter(artist__name__icontains=in_artist, title__icontains=in_title)
-            .order_by("artist__name", "title")[:50]
-        )
-        if qs2.exists():
-            raise serializers.ValidationError(
-                {
-                    "detail": "multiple_matches",
-                    "hint": "exact not found; showing icontains candidates.",
-                    "candidates": [
-                        {
-                            "song_id": x.id,
-                            "artist_id": x.artist_id,
-                            "artist": x.artist.name,
-                            "title": x.title,
-                        }
-                        for x in qs2
-                    ],
-                    "echo": {"artist_in": in_artist, "title_in": in_title},
                 }
             )
 
