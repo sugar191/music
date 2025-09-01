@@ -1,5 +1,10 @@
 from rest_framework import serializers
 from .models import MusicRegion, Artist, Song, Rating
+import unicodedata
+
+
+def _norm(s: str) -> str:
+    return unicodedata.normalize("NFKC", s or "").strip()
 
 
 class MusicRegionSerializer(serializers.ModelSerializer):
@@ -48,15 +53,16 @@ class SongLookupCreateSerializer(serializers.Serializer):
     is_cover = serializers.BooleanField(required=False, allow_null=True)
 
     def lookup_only(self, validated):
-        artist_name = validated["artist"].strip()
-        title = validated["title"].strip()
+        in_artist = _norm(validated["artist"])
+        in_title = _norm(validated["title"])
 
-        # ★ 地域を完全に無視し、artist.name と song.title の組み合わせだけを大小無視で検索
+        # ★ 地域は完全に無視。artist.name と song.title の組み合わせだけで大小無視で一致
         qs = (
             Song.objects.select_related("artist")
-            .filter(artist__name__iexact=artist_name, title__iexact=title)
+            .filter(artist__name__iexact=in_artist, title__iexact=in_title)
             .order_by("id")
         )
+
         cnt = qs.count()
         if cnt == 1:
             s = qs.first()
@@ -65,43 +71,66 @@ class SongLookupCreateSerializer(serializers.Serializer):
                 "artist_id": s.artist_id,
                 "created": {"region": False, "artist": False, "song": False},
             }
-        elif cnt == 0:
-            raise serializers.ValidationError({"detail": "not_found"})
-        else:
-            # 同名アーティスト（地域違い等）で複数候補があるケース
+        if cnt > 1:
+            # 候補を返して 409 にする（作成はしない）
             raise serializers.ValidationError(
                 {
                     "detail": "multiple_matches",
                     "candidates": [
                         {
-                            "song_id": s.id,
-                            "artist_id": s.artist_id,
-                            "artist": s.artist.name,
-                            "title": s.title,
+                            "song_id": x.id,
+                            "artist_id": x.artist_id,
+                            "artist": x.artist.name,
+                            "title": x.title,
                         }
-                        for s in qs[:20]
+                        for x in qs[:50]
                     ],
                 }
             )
 
+        # ゆるめ検索の候補（見つからない時のヒント用・作成はしない）
+        qs2 = (
+            Song.objects.select_related("artist")
+            .filter(artist__name__icontains=in_artist, title__icontains=in_title)
+            .order_by("artist__name", "title")[:50]
+        )
+        if qs2.exists():
+            raise serializers.ValidationError(
+                {
+                    "detail": "multiple_matches",
+                    "hint": "exact not found; showing icontains candidates.",
+                    "candidates": [
+                        {
+                            "song_id": x.id,
+                            "artist_id": x.artist_id,
+                            "artist": x.artist.name,
+                            "title": x.title,
+                        }
+                        for x in qs2
+                    ],
+                    "echo": {"artist_in": in_artist, "title_in": in_title},
+                }
+            )
+
+        raise serializers.ValidationError(
+            {
+                "detail": "not_found",
+                "echo": {"artist_in": in_artist, "title_in": in_title},
+            }
+        )
+
     def create(self, validated):
-        """
-        ?create=true のときだけ呼ばれる想定。
-        作る前に lookup_only を必ず試し、既存があればそれを返す。
-        地域は使わず region=None 固定で作成。
-        """
+        """?create=true の時だけ作成。まず lookup を試す。地域は使わず region=None 固定。"""
         try:
             return self.lookup_only(validated)
         except serializers.ValidationError as e:
             if not (
                 isinstance(e.detail, dict) and e.detail.get("detail") == "not_found"
             ):
-                raise  # multiple_matches 等はそのまま上げる
+                raise
 
-        from .models import Artist
-
-        artist_name = validated["artist"].strip()
-        title = validated["title"].strip()
+        artist_name = _norm(validated["artist"])
+        title = _norm(validated["title"])
         is_cover = validated.get("is_cover", None)
 
         artist, c_artist = Artist.objects.get_or_create(
