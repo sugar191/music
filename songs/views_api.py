@@ -23,6 +23,7 @@ class SongViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Song.objects.select_related("artist__region").all()
     serializer_class = SongSerializer
     permission_classes = [AuthRequired]
+    lookup_value_regex = r"\d+"
 
 
 class RatingViewSet(
