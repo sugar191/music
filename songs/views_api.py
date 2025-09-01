@@ -1,10 +1,11 @@
 from django.db.models import Avg, Count
 from rest_framework import viewsets, mixins, permissions, status
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
+from rest_framework.views import APIView
 from .models import Song, Rating
-from .serializers import SongSerializer, RatingSerializer
+from .serializers import SongSerializer, RatingSerializer, SongLookupCreateSerializer
 
 
 class AuthRequired(permissions.IsAuthenticated):
@@ -116,3 +117,14 @@ class RatingViewSet(
         )
         result = {sid: score for sid, score in rows}
         return Response({"results": result}, status=200)
+
+
+class SongLookupOrCreateApi(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ser = SongLookupCreateSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+        result = ser.save()  # create() が辞書を返す実装
+        return Response(result, status=status.HTTP_200_OK)
