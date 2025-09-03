@@ -1,5 +1,5 @@
 from django.db.models import Avg, Count
-from rest_framework import viewsets, mixins, permissions, status, serializers
+from rest_framework import viewsets, mixins, permissions, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -127,26 +127,5 @@ class SongLookupOrCreateApi(APIView):
         ser = SongLookupCreateSerializer(data=request.data)
         if not ser.is_valid():
             return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        # デフォルトは作成しない（lookup専用）。?create=true のときだけ作成。
-        create_flag = str(request.query_params.get("create", "false")).lower() in (
-            "1",
-            "true",
-            "yes",
-        )
-
-        try:
-            if create_flag:
-                result = ser.save()  # lookup→無ければ作成
-                return Response(result, status=status.HTTP_200_OK)
-            else:
-                result = ser.lookup_only(ser.validated_data)  # lookupのみ
-                return Response(result, status=status.HTTP_200_OK)
-        except serializers.ValidationError as e:
-            detail = e.detail if isinstance(e.detail, dict) else {"detail": "error"}
-            code = detail.get("detail")
-            if code == "not_found":
-                return Response(detail, status=status.HTTP_404_NOT_FOUND)
-            if code == "multiple_matches":
-                return Response(detail, status=status.HTTP_409_CONFLICT)
-            return Response(detail, status=status.HTTP_400_BAD_REQUEST)
+        result = ser.save()  # create() が辞書を返す実装
+        return Response(result, status=status.HTTP_200_OK)
