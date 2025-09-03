@@ -15,9 +15,14 @@ class AuthRequired(permissions.IsAuthenticated):
 
 
 class SongViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    曲の参照（一覧・詳細）。
+    既存の画面はそのまま使い、外部クライアント用にRESTも提供。
+    """
+
     queryset = Song.objects.select_related("artist__region").all()
     serializer_class = SongSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [AuthRequired]
     lookup_value_regex = r"\d+"
 
 
@@ -123,14 +128,20 @@ class SongLookupOrCreateApi(APIView):
         if not ser.is_valid():
             return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        # デフォルトは作成しない（lookup専用）。?create=true のときだけ作成。
         create_flag = str(request.query_params.get("create", "false")).lower() in (
             "1",
             "true",
             "yes",
         )
+
         try:
-            result = ser.save() if create_flag else ser.lookup_only(ser.validated_data)
-            return Response(result, status=status.HTTP_200_OK)
+            if create_flag:
+                result = ser.save()  # lookup→無ければ作成
+                return Response(result, status=status.HTTP_200_OK)
+            else:
+                result = ser.lookup_only(ser.validated_data)  # lookupのみ
+                return Response(result, status=status.HTTP_200_OK)
         except serializers.ValidationError as e:
             detail = e.detail if isinstance(e.detail, dict) else {"detail": "error"}
             code = detail.get("detail")
