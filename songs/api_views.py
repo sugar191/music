@@ -103,3 +103,30 @@ def export_ratings(request):
         filename = f"ratings_{request.user.username}.json"
         resp["Content-Disposition"] = f'attachment; filename="{iri_to_uri(filename)}"'
     return resp
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def export_artist_regions(request):
+    """
+    全アーティストの地域コードをエクスポート。
+    ?download=1 で attachment
+    """
+    qs = Artist.objects.select_related("region").all().order_by("name")
+    data = []
+    for a in qs:
+        fmt = a.format_name or normalize(a.name)
+        data.append(
+            {
+                "name": a.name,
+                "format_name": fmt,
+                "region": (
+                    a.region.code if a.region else None
+                ),  # 例: "JP","EN","KR", None
+            }
+        )
+
+    resp = Response(data)
+    if request.query_params.get("download") in ("1", "true", "yes"):
+        resp["Content-Disposition"] = 'attachment; filename="artist_regions.json"'
+    return resp

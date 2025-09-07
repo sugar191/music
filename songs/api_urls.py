@@ -7,4 +7,7 @@ urlpatterns = [
     path(
         "ratings/export", api_views.export_ratings, name="export_ratings"
     ),  # ★ 追加: GET
+    path(
+        "artists/regions", api_views.export_artist_regions, name="export_artist_regions"
+    ),
 ]

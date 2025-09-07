@@ -44,3 +44,14 @@ class RatingExportSerializer(serializers.Serializer):
     artist = serializers.CharField()
     title = serializers.CharField()
     score = serializers.IntegerField(min_value=0, max_value=100)
+
+
+class ArtistRegionSerializer(serializers.ModelSerializer):
+    region = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Artist
+        fields = ["name", "format_name", "region"]
+
+    def get_region(self, obj):
+        return obj.region.code if obj.region else None
