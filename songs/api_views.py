@@ -1,11 +1,11 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils.encoding import iri_to_uri
 from rest_framework import status, permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-
 from .models import Artist, Song, Rating
-from .api_serializers import RatingSerializer
+from .api_serializers import RatingExportSerializer
 from .utils import normalize
 
 
@@ -74,3 +74,43 @@ def update_score(request):
             "created": created,
         }
     )
+
+
+def export_ratings(request):
+    """
+    ログインユーザーの Rating を (artist, title, score) のJSON配列で返す。
+    オプション:
+      ?artist=...     → そのアーティストだけ（iexact）
+      ?download=1     → Content-Disposition を付けてダウンロードさせやすく
+    """
+    qs = (
+        Rating.objects.filter(user=request.user)
+        .select_related("song__artist")
+        .only("score", "song__title", "song__artist__name")
+        .order_by("song__artist__name", "song__title")
+    )
+
+    artist = request.query_params.get("artist")
+    if artist:
+        qs = qs.filter(song__artist__name__iexact=artist.strip())
+
+    data = [
+        {
+            "artist": r.song.artist.name,
+            "title": r.song.title,
+            "score": int(r.score),
+        }
+        for r in qs
+    ]
+
+    # （任意）バリデーションしてから返す
+    ser = RatingExportSerializer(data=data, many=True)
+    ser.is_valid(raise_exception=True)
+
+    resp = Response(ser.data, status=200)
+
+    # ダウンロードさせたい場合のヘッダ（?download=1）
+    if request.query_params.get("download") in ("1", "true", "yes"):
+        filename = f"ratings_{request.user.username}.json"
+        resp["Content-Disposition"] = f'attachment; filename="{iri_to_uri(filename)}"'
+    return resp

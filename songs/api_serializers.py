@@ -38,3 +38,9 @@ class RatingSerializer(serializers.ModelSerializer):
         model = Rating
         fields = ["song", "score", "artist", "title"]  # song は応答で埋まることあり
         extra_kwargs = {"song": {"read_only": True}}
+
+
+class RatingExportSerializer(serializers.Serializer):
+    artist = serializers.CharField()
+    title = serializers.CharField()
+    score = serializers.IntegerField(min_value=0, max_value=100)
