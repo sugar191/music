@@ -76,41 +76,30 @@ def update_score(request):
     )
 
 
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
 def export_ratings(request):
-    """
-    ログインユーザーの Rating を (artist, title, score) のJSON配列で返す。
-    オプション:
-      ?artist=...     → そのアーティストだけ（iexact）
-      ?download=1     → Content-Disposition を付けてダウンロードさせやすく
-    """
+    # ★ ここを request.GET に（DRFでもDjangoでもOK）
+    params = request.GET
+    artist = params.get("artist")
+    want_download = params.get("download") in ("1", "true", "yes")
+
     qs = (
         Rating.objects.filter(user=request.user)
         .select_related("song__artist")
         .only("score", "song__title", "song__artist__name")
         .order_by("song__artist__name", "song__title")
     )
-
-    artist = request.query_params.get("artist")
     if artist:
         qs = qs.filter(song__artist__name__iexact=artist.strip())
 
     data = [
-        {
-            "artist": r.song.artist.name,
-            "title": r.song.title,
-            "score": int(r.score),
-        }
+        {"artist": r.song.artist.name, "title": r.song.title, "score": int(r.score)}
         for r in qs
     ]
 
-    # （任意）バリデーションしてから返す
-    ser = RatingExportSerializer(data=data, many=True)
-    ser.is_valid(raise_exception=True)
-
-    resp = Response(ser.data, status=200)
-
-    # ダウンロードさせたい場合のヘッダ（?download=1）
-    if request.query_params.get("download") in ("1", "true", "yes"):
+    resp = Response(data, status=200)
+    if want_download:
         filename = f"ratings_{request.user.username}.json"
         resp["Content-Disposition"] = f'attachment; filename="{iri_to_uri(filename)}"'
     return resp
