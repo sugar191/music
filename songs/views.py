@@ -147,7 +147,17 @@ def artist_list_view(request):
 
 @login_required
 def song_ranking_view(request):
+    regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
+
+    # 入力したパラメータを取得
+    if "region_id" not in request.GET:
+        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
 
     selected_user_id = request.GET.get("user")
     selected_user = (
@@ -156,16 +166,30 @@ def song_ranking_view(request):
         else request.user
     )
 
-    songs = RankView.objects.filter(user_id=selected_user.id)
+    qs = RankView.objects.filter(user_id=selected_user.id)
+
+    if region_id:
+        qs = qs.filter(region_id=region_id).annotate(
+            display_rank=F("rank_region"),
+            display_order=F("order_region"),
+        )
+    else:
+        qs = qs.annotate(
+            display_rank=F("rank_all"),
+            display_order=F("order_all"),
+        )
+    qs = qs.order_by("display_order")
 
     return render(
         request,
         "songs/song_ranking.html",
         {
+            "regions": regions,
             "users": users,
             "selected_user": selected_user,
-            "songs": songs,
+            "songs": qs,  # テンプレートは display_rank / display_order を表示
             "is_own_page": selected_user == request.user,
+            "region_id": region_id,
         },
     )
 
@@ -233,7 +257,7 @@ def artist_song_list_view(request, artist_id):
             user_score=Subquery(user_score_subquery, output_field=IntegerField())
         )
         .select_related("artist")
-        .order_by("-user_score", Lower("title"))
+        .order_by("is_cover", "-user_score", Lower("title"))
     )
 
     # スコア降順 → タイトル昇順
@@ -567,8 +591,8 @@ def artist_search_view(request):
         qs = qs.filter(region_id=region_id)
 
     if prefix:
-        # a.name LIKE 'A%'（大文字小文字を吸収するなら istartswith）
-        qs = qs.filter(name__istartswith=prefix)
+        p = (prefix or "").strip().lower()
+        qs = qs.annotate(name_lc=Lower("name")).filter(name_lc__startswith=p)
     else:
         prefix = ""
 

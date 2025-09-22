@@ -6,6 +6,12 @@
 <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
         <form method="get" action="{% url 'song_ranking' %}">
+            <select name="region_id" id="region-select" onchange="this.form.submit()">
+                <option value="" {% if not region_id %}selected{% endif %}>全て</option>
+                {% for r in regions %}
+                    <option value="{{ r.id }}" {% if r.id|stringformat:"s" == region_id %}selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
             <select name="user" id="user" onchange="this.form.submit()">
                 {% for user in users %}
                     <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
@@ -20,7 +26,7 @@
             <tbody>
                 {% for song in songs %}
                     <tr>
-                        <td class="count-cell">{{ song.rank_all }}位</td>
+                        <td class="count-cell">{{ song.display_rank }}位</td>
                         <td class="pc-cell">
                             <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
                         </td>

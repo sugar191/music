@@ -82,6 +82,8 @@ class RankView(models.Model):
     order_artist = models.IntegerField()
     rank_all = models.IntegerField()
     order_all = models.IntegerField()
+    rank_region = models.IntegerField()
+    order_region = models.IntegerField()
 
     class Meta:
         managed = False  # DjangoがCREATE TABLEしないように
