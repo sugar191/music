@@ -1,105 +1,323 @@
 {% extends "base.html" %}
 {% block title %}曲追加{% endblock %}
 {% block content %}
-    {% if error %}
-        <p style="color: red;">{{ error }}</p>
-    {% endif %}
 
-    <form method="post">
-        {% csrf_token %}
-        <!-- region選択 -->
-        <div>
-            <label>ジャンル:</label>
-            <select name="region_id" id="region-select">
-                <option value="">-- 選択 --</option>
-                {% for r in regions %}
-                    <option value="{{ r.id }}"
-                        {% if selected_region_id == r.id|stringformat:"s" %}selected{% endif %}>
-                        {{ r.name }}
-                    </option>
-                {% endfor %}
-            </select>
+  <form method="post">
+    {% csrf_token %}
+    <div class="top-bar">
+      <label><input type="radio" name="mode" value="single" {% if mode == 'single' %}checked{% endif %}> 単一歌手</label>
+      <label style="margin-left:10px"><input type="radio" name="mode" value="multi" {% if mode == 'multi' %}checked{% endif %}> 複数歌手</label>
+    </div>
+    <div class="table-area">
+      {% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+      {% if done %}<p style="color:green">複数歌手の登録が完了しました。</p>{% endif %}
+      <!-- ===== 単一歌手モード ===== -->
+      <div id="single-section" {% if mode != 'single' %}style="display:none"{% endif %}>
+        <select name="region_id" id="region-select">
+          <option value="">-- 地域 --</option>
+          {% for r in regions %}
+            <option value="{{ r.id }}" {% if selected_region_id == r.id|stringformat:"s" %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+        <select name="artist_id" id="artist-select">
+          <option value="">-- 歌手 --</option>
+          {% for artist in artists %}
+            <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}"
+              {% if selected_artist_id == artist.id|stringformat:"s" %}selected{% endif %}>{{ artist.name }}</option>
+          {% endfor %}
+        </select>
+        <input type="text" name="new_artist_name" id="artist-name-input" placeholder="新しい歌手名">
+
+        <div style="display:flex; gap:8px; align-items:center; margin:10px 0;">
+          <button type="button" id="single-add-row">＋ 行を追加</button>
+          <button type="button" id="single-add-5">＋5 行</button>
+          <button type="submit">登録</button>
         </div>
 
-        <div>
-            <label>歌手:</label>
-            <select name="artist_id" id="artist-select">
-                <option value="">-- 選択 --</option>
-                {% for artist in artists %}
-                    <option value="{{ artist.id }}"
-                            data-name="{{ artist.name|lower }}"
-                            data-region-id="{{ artist.region.id }}"
-                            {% if selected_artist_id == artist.id|stringformat:"s" %}selected{% endif %}>
-                        {{ artist.name }}
-                    </option>
-                {% endfor %}
-            </select>
-        </div>
-        <div>
-            <input type="text" name="new_artist_name" id="artist-name-input" placeholder="新しい歌手名">
-        </div>
-
-        曲名と点数（最大20曲）
         <table>
           <thead>
-            <tr>
-              <th>曲名</th>
-              <th>点数</th>
-              <th>カバー</th>
-            </tr>
+            <tr><th>曲名</th><th>点数</th><th>カバー</th><th></th></tr>
           </thead>
-          <tbody>
-            {% for i in range20 %}
-              <tr>
+          <tbody id="single-tbody">
+            {% for i in range_initial %}
+              <tr data-row="{{ i }}">
                 <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
-                <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数" class="score-input"></td>
+                <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数"></td>
                 <td><input type="checkbox" name="song_is_cover_{{ i }}"></td>
+                <td><button type="button" class="remove-row" data-row="{{ i }}">削除</button></td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
+      </div>
 
-        <button type="submit">登録</button>
-    </form>
+      <!-- ===== 複数歌手モード ===== -->
+      <div id="multi-section" {% if mode != 'multi' %}style="display:none"{% endif %}>
+        <div style="display:flex; gap:8px; align-items:center; margin:10px 0;">
+          <button type="button" id="multi-add-row">＋ 行を追加</button>
+          <button type="button" id="multi-add-5">＋5 行</button>
+          <button type="submit">登録</button>
+        </div>
+
+        <!-- マスターオプション（非表示）：JSで複製に使う -->
+        <select id="region-options-master" style="display:none">
+          <option value="">--</option>
+          {% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+        </select>
+        <select id="artist-options-master" style="display:none">
+          <option value="">--</option>
+          {% for artist in artists %}
+            <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}">{{ artist.name }}</option>
+          {% endfor %}
+        </select>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>地域</th><th>既存歌手</th><th>新規歌手名</th><th>曲名</th><th>点数</th><th>カバー</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="multi-tbody">
+            {% for i in range_initial %}
+              <tr data-row="{{ i }}">
+                <td>{{ i }}</td>
+                <td>
+                  <select name="region_id_{{ i }}" class="region-select" data-row="{{ i }}">
+                    <option value="">--</option>
+                    {% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+                  </select>
+                </td>
+                <td>
+                  <select name="artist_id_{{ i }}" class="artist-select" data-row="{{ i }}">
+                    <option value="">--</option>
+                    {% for artist in artists %}
+                      <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}">{{ artist.name }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td><input type="text" name="new_artist_name_{{ i }}" class="new-artist-input" data-row="{{ i }}" placeholder="新規の場合ここに入力"></td>
+                <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
+                <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数"></td>
+                <td><input type="checkbox" name="song_is_cover_{{ i }}"></td>
+                <td><button type="button" class="remove-row" data-row="{{ i }}">削除</button></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin-top:10px"><button type="submit">登録</button></div>
+  </form>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  const regionSelect = document.getElementById("region-select");
-  const artistSelect = document.getElementById("artist-select");
-  const artistInput  = document.getElementById("artist-name-input");
-
-  function filterArtistsByRegion(regionId) {
-    Array.from(artistSelect.options).forEach(option => {
-      if (!option.value) return;
-      const artistRegionId = option.dataset.regionId;
-      option.style.display = (regionId === "" || artistRegionId === regionId) ? "block" : "none";
+  // ===== モード切替 =====
+  const radios = document.querySelectorAll('input[name="mode"]');
+  const form = document.querySelector("form");
+  const singleSection = document.getElementById("single-section");
+  const multiSection  = document.getElementById("multi-section");
+  function setSectionDisabled(sectionEl, disabled) {
+    if (!sectionEl) return;
+    const controls = sectionEl.querySelectorAll("input, select, textarea, button");
+    controls.forEach(el => {
+      // 送信用の <button type="submit"> まで無効にしないようにケア
+      if (el.type === "submit") return;
+      el.disabled = disabled;
     });
   }
 
-  regionSelect.addEventListener("change", function () {
-    filterArtistsByRegion(this.value);
-  });
+  function toggleModeUI(mode) {
+    if (mode === "single") {
+      singleSection.style.display = "";
+      multiSection.style.display  = "none";
+      setSectionDisabled(singleSection, false);
+      setSectionDisabled(multiSection, true);   // ★ 非表示側を無効化
+    } else {
+      singleSection.style.display = "none";
+      multiSection.style.display  = "";
+      setSectionDisabled(singleSection, true);  // ★ 非表示側を無効化
+      setSectionDisabled(multiSection, false);
+    }
+  }
 
-  artistInput.addEventListener("input", function () {
-    const inputName = artistInput.value.trim().toLowerCase();
-    if (!inputName) return;
-    let matched = false;
-    Array.from(artistSelect.options).forEach(option => {
-      const artistName = option.dataset.name;
-      if (artistName && artistName === inputName) {
-        option.selected = true;
-        regionSelect.value = option.dataset.regionId;
-        filterArtistsByRegion(regionSelect.value);  // ← region変更に追随
-        matched = true;
-      }
+  // 初期反映
+  const checked = document.querySelector('input[name="mode"]:checked');
+  toggleModeUI(checked ? checked.value : "single");
+
+  // モード切替
+  radios.forEach(r => {
+    r.addEventListener("change", () => {
+      if (!r.checked) return;
+      toggleModeUI(r.value);  // ← これだけでOK（displayもdisabledも反映）
     });
-    if (matched) artistInput.value = "";
   });
 
-  // 初期表示：まずregionで絞り込み→selectedのartistが見える状態に
-  filterArtistsByRegion(regionSelect.value);
+  // 送信直前も保険で無効化をかける
+  form.addEventListener("submit", () => {
+    const current = document.querySelector('input[name="mode"]:checked')?.value || "single";
+    if (current === "single") {
+      setSectionDisabled(multiSection, true);
+      setSectionDisabled(singleSection, false);
+    } else {
+      setSectionDisabled(singleSection, true);
+      setSectionDisabled(multiSection, false);
+    }
+  });
+
+  // ===== 単一モード 既存の同期（あなたの既存JSそのまま） =====
+  const regionSelect = document.getElementById("region-select");
+  const artistSelect = document.getElementById("artist-select");
+  const artistInput  = document.getElementById("artist-name-input");
+  function filterArtistsByRegionSingle(regionId) {
+    if (!artistSelect) return;
+    Array.from(artistSelect.options).forEach(option => {
+      if (!option.value) return;
+      option.style.display = (regionId === "" || option.dataset.regionId === regionId) ? "block" : "none";
+    });
+  }
+  if (regionSelect) regionSelect.addEventListener("change", function () { filterArtistsByRegionSingle(this.value); });
+  if (artistInput && artistSelect && regionSelect) {
+    artistInput.addEventListener("input", function () {
+      const inputName = artistInput.value.trim().toLowerCase();
+      if (!inputName) return;
+      let matched = false;
+      Array.from(artistSelect.options).forEach(option => {
+        if (option.dataset.name === inputName) {
+          option.selected = true;
+          regionSelect.value = option.dataset.regionId || "";
+          filterArtistsByRegionSingle(regionSelect.value);
+          matched = true;
+        }
+      });
+      if (matched) artistInput.value = "";
+    });
+  }
+  if (regionSelect) filterArtistsByRegionSingle(regionSelect.value);
+
+  // ===== 行テンプレート =====
+  const singleTpl = document.createElement("template");
+  singleTpl.innerHTML = `
+    <tr data-row="__i__">
+      <td><input type="text" name="song_title___i__" placeholder="曲名"></td>
+      <td><input type="number" name="song_score___i__" min="0" max="100" placeholder="点数"></td>
+      <td><input type="checkbox" name="song_is_cover___i__"></td>
+      <td><button type="button" class="remove-row" data-row="__i__">削除</button></td>
+    </tr>`.trim();
+
+  const multiTpl = document.createElement("template");
+  // 選択肢は生成後にマスターから流し込む
+  multiTpl.innerHTML = `
+    <tr data-row="__i__">
+      <td>__i__</td>
+      <td><select name="region_id___i__" class="region-select" data-row="__i__"></select></td>
+      <td><select name="artist_id___i__" class="artist-select" data-row="__i__"></select></td>
+      <td><input type="text" name="new_artist_name___i__" class="new-artist-input" data-row="__i__" placeholder="新規の場合ここに入力"></td>
+      <td><input type="text" name="song_title___i__" placeholder="曲名"></td>
+      <td><input type="number" name="song_score___i__" min="0" max="100" placeholder="点数"></td>
+      <td><input type="checkbox" name="song_is_cover___i__"></td>
+      <td><button type="button" class="remove-row" data-row="__i__">削除</button></td>
+    </tr>`.trim();
+
+  const singleTbody = document.getElementById("single-tbody");
+  const multiTbody  = document.getElementById("multi-tbody");
+  let singleNextIdx = singleTbody ? singleTbody.querySelectorAll("tr").length + 1 : 1;
+  let multiNextIdx  = multiTbody ? multiTbody.querySelectorAll("tr").length + 1 : 1;
+
+  // マスターoption
+  const regionMaster = document.getElementById("region-options-master");
+  const artistMaster = document.getElementById("artist-options-master");
+
+  function addSingleRows(n=1) {
+    for (let k=0;k<n;k++) {
+      const i = singleNextIdx++;
+      const html = singleTpl.innerHTML.replaceAll("__i__", i);
+      singleTbody.insertAdjacentHTML("beforeend", html);
+    }
+  }
+  function addMultiRows(n=1) {
+    for (let k=0;k<n;k++) {
+      const i = multiNextIdx++;
+      const html = multiTpl.innerHTML.replaceAll("__i__", i);
+      multiTbody.insertAdjacentHTML("beforeend", html);
+      // 追加直後にoptionを流し込み
+      const row = multiTbody.querySelector(`tr[data-row="${i}"]`);
+      const rsel = row.querySelector(`select[name="region_id_${i}"]`);
+      const asel = row.querySelector(`select[name="artist_id_${i}"]`);
+      if (rsel && regionMaster) rsel.innerHTML = regionMaster.innerHTML;
+      if (asel && artistMaster) asel.innerHTML = artistMaster.innerHTML;
+    }
+  }
+
+  // 追加ボタン
+  const btnAddSingle = document.getElementById("single-add-row");
+  const btnAdd5Single = document.getElementById("single-add-5");
+  if (btnAddSingle) btnAddSingle.addEventListener("click", () => addSingleRows(1));
+  if (btnAdd5Single) btnAdd5Single.addEventListener("click", () => addSingleRows(5));
+  const btnAddMulti = document.getElementById("multi-add-row");
+  const btnAdd5Multi = document.getElementById("multi-add-5");
+  if (btnAddMulti) btnAddMulti.addEventListener("click", () => addMultiRows(1));
+  if (btnAdd5Multi) btnAdd5Multi.addEventListener("click", () => addMultiRows(5));
+
+  // 削除（委譲）
+  document.addEventListener("click", function (e) {
+    if (e.target.classList.contains("remove-row")) {
+      const tr = e.target.closest("tr");
+      if (tr) tr.remove();
+    }
+  });
+
+  // ===== 複数モードの地域⇄歌手同期（行追加後も効くよう委譲） =====
+  function filterArtistsByRegionRow(row, regionId) {
+    const sel = document.querySelector(`select[name="artist_id_${row}"]`);
+    if (!sel) return;
+    Array.from(sel.options).forEach(opt => {
+      if (!opt.value) return;
+      const rid = opt.dataset.regionId;
+      opt.style.display = (regionId === "" || rid === regionId) ? "block" : "none";
+    });
+  }
+
+  document.addEventListener("change", function (e) {
+    if (e.target.classList.contains("region-select")) {
+      const row = e.target.dataset.row;
+      filterArtistsByRegionRow(row, e.target.value);
+    }
+    if (e.target.classList.contains("artist-select")) {
+      const row = e.target.dataset.row;
+      const opt = e.target.selectedOptions[0];
+      const rid = opt && opt.dataset.regionId ? opt.dataset.regionId : "";
+      const rsel = document.querySelector(`select[name="region_id_${row}"]`);
+      if (rsel && rid) {
+        rsel.value = rid;
+        filterArtistsByRegionRow(row, rid);
+      }
+    }
+  });
+
+  document.addEventListener("input", function (e) {
+    if (e.target.classList.contains("new-artist-input")) {
+      const row = e.target.dataset.row;
+      const inputName = e.target.value.trim().toLowerCase();
+      if (!inputName) return;
+      const asel = document.querySelector(`select[name="artist_id_${row}"]`);
+      const rsel = document.querySelector(`select[name="region_id_${row}"]`);
+      let matched = false;
+      Array.from(asel.options).forEach(opt => {
+        if (opt.dataset.name === inputName) {
+          opt.selected = true;
+          const rid = opt.dataset.regionId || "";
+          if (rsel && rid) {
+            rsel.value = rid;
+            filterArtistsByRegionRow(row, rid);
+          }
+          matched = true;
+        }
+      });
+      if (matched) e.target.value = "";
+    }
+  });
 });
 </script>
 {% endblock %}

@@ -15,6 +15,7 @@ a {
 
 table {
     border-collapse: collapse;
+    max-width: 100%;
 }
 
 th, td {
@@ -55,7 +56,7 @@ input[type="checkbox"] {
 }
 
 select {
-    max-width: 100%;       /* セレクトボックス自体の最大幅 */
+    max-width: 200px;       /* セレクトボックス自体の最大幅 */
     white-space: nowrap;   /* 折り返さず */
     overflow: hidden;      /* はみ出した部分を隠す */
     text-overflow: ellipsis; /* ... を表示 */

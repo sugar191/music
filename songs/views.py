@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
@@ -359,17 +360,34 @@ def update_cover_view(request):
         return JsonResponse({"success": False, "error": str(e)})
 
 
+def _extract_indices(post_dict, prefix):
+    """
+    POSTのキー名から 'prefix' に続く連番（数字）をすべて抽出してソートして返す。
+    例: song_title_3, song_title_12 → [3, 12]
+    """
+    pat = re.compile(rf"^{re.escape(prefix)}(\d+)$")
+    idxs = set()
+    for k in post_dict.keys():
+        m = pat.match(k)
+        if m:
+            idxs.add(int(m.group(1)))
+    return sorted(idxs)
+
+
 # 曲追加
 @login_required
 def bulk_add_view(request):
     regions = MusicRegion.objects.all()
-    artists = Artist.objects.all().order_by("name")
+    artists = Artist.objects.select_related("region").all().order_by("name")
 
-    # ① GETのartist_idを受け取り
     selected_artist_id = request.GET.get("artist_id") or ""
     selected_region_id = ""
+    mode = request.GET.get("mode") or request.POST.get("mode") or "single"
+    done = request.GET.get("done")
 
-    # ② artist_id から region も決めておく（あれば）
+    # 初期表示で出しておく行数（増減可能）
+    initial_rows = 5
+
     if selected_artist_id:
         try:
             sel_artist = Artist.objects.select_related("region").get(
@@ -377,121 +395,152 @@ def bulk_add_view(request):
             )
             selected_region_id = str(sel_artist.region_id)
         except Artist.DoesNotExist:
-            selected_artist_id = ""  # 変なIDなら無視
+            selected_artist_id = ""
 
-    if request.method == "POST":
-        user = request.user
-
-        region_id = request.POST.get("region_id")
-        artist_id = request.POST.get("artist_id")
-        new_artist_name = request.POST.get("new_artist_name", "").strip()
-
-        # --- 歌手の取得または作成 ---
-        if artist_id:
-            try:
-                artist = Artist.objects.get(id=artist_id)
-            except Artist.DoesNotExist:
-                return render(
-                    request,
-                    "songs/bulk_add.html",
-                    {
-                        "artist_id": artist_id,
-                        "artists": artists,
-                        "regions": regions,
-                        "error": "選択された歌手が存在しません。",
-                    },
-                )
-        elif new_artist_name:
-            if not region_id:
-                return render(
-                    request,
-                    "songs/bulk_add.html",
-                    {
-                        "artist_id": artist_id,
-                        "artists": artists,
-                        "regions": regions,
-                        "range20": range(1, 21),  # ★ 忘れずに渡す
-                        "error": "新しい歌手名を登録する場合、地域を選択してください。",
-                    },
-                )
-            try:
-                region = MusicRegion.objects.get(id=region_id)
-            except MusicRegion.DoesNotExist:
-                return render(
-                    request,
-                    "songs/bulk_add.html",
-                    {
-                        "artist_id": artist_id,
-                        "artists": artists,
-                        "regions": regions,
-                        "range20": range(1, 21),  # ← ここを必ず追加
-                        "error": "選択された地域が存在しません。",
-                    },
-                )
-            artist, _ = Artist.objects.get_or_create(
-                name=new_artist_name, defaults={"region": region}
-            )
-        else:
-            return render(
-                request,
-                "songs/bulk_add.html",
-                {
-                    "artist_id": artist_id,
-                    "artists": artists,
-                    "regions": regions,
-                    "range20": range(1, 21),  # ← ここを必ず追加
-                    "error": "歌手を選択するか新規入力してください。",
-                },
-            )
-
-        # --- 曲と点数を処理（最大20曲） ---
-        for i in range(1, 21):
-            title = request.POST.get(f"song_title_{i}", "").strip()
-            score = request.POST.get(f"song_score_{i}", "").strip()
-            is_cover = (
-                request.POST.get(f"song_is_cover_{i}") == "on"
-            )  # ← チェックされていれば True
-
-            if not title:
-                continue  # 入力なしはスキップ
-
-            song = Song.objects.filter(title=title, artist=artist).first()
-            if not song:
-                try:
-                    song = Song.objects.create(
-                        title=title, artist=artist, is_cover=is_cover
-                    )
-                except IntegrityError:
-                    song = Song.objects.get(title=title, artist=artist)
-            else:
-                # 既存曲ならフラグを更新しても良い（任意）
-                song.is_cover = is_cover
-                song.save()
-
-            if score:
-                try:
-                    score = int(score)
-                    if 0 <= score <= 100:
-                        Rating.objects.update_or_create(
-                            user=user, song=song, defaults={"score": score}
-                        )
-                except ValueError:
-                    pass
-
-        return redirect("artist_songs", artist_id=artist.id)
-
-    return render(
-        request,
-        "songs/bulk_add.html",
-        {
-            # テンプレで使う
+    def render_form(error=None):
+        ctx = {
             "selected_artist_id": str(selected_artist_id),
             "selected_region_id": str(selected_region_id),
             "artists": artists,
             "regions": regions,
-            "range20": range(1, 21),
-        },
-    )
+            "initial_rows": initial_rows,
+            "range_initial": range(1, initial_rows + 1),
+            "mode": mode,
+            "done": done,
+        }
+        if error:
+            ctx["error"] = error
+        return render(request, "songs/bulk_add.html", ctx)
+
+    if request.method == "POST":
+        user = request.user
+
+        if mode == "single":
+            # 単一歌手の決定は従来通り
+            region_id = request.POST.get("region_id")
+            artist_id = request.POST.get("artist_id")
+            new_artist_name = request.POST.get("new_artist_name", "").strip()
+
+            if artist_id:
+                try:
+                    artist = Artist.objects.get(id=artist_id)
+                except Artist.DoesNotExist:
+                    return render_form("選択された歌手が存在しません。")
+            elif new_artist_name:
+                if not region_id:
+                    return render_form(
+                        "新しい歌手名を登録する場合、地域を選択してください。"
+                    )
+                try:
+                    region = MusicRegion.objects.get(id=region_id)
+                except MusicRegion.DoesNotExist:
+                    return render_form("選択された地域が存在しません。")
+                artist, _ = Artist.objects.get_or_create(
+                    name=new_artist_name, defaults={"region": region}
+                )
+            else:
+                return render_form("歌手を選択するか新規入力してください。")
+
+            # ★ 可変行対応：POSTキーから実在する行番号だけを抽出して回す
+            indices = _extract_indices(request.POST, "song_title_")
+            for i in indices:
+                title = request.POST.get(f"song_title_{i}", "").strip()
+                score = request.POST.get(f"song_score_{i}", "").strip()
+                is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
+                if not title:
+                    continue
+
+                song = Song.objects.filter(title=title, artist=artist).first()
+                if not song:
+                    try:
+                        song = Song.objects.create(
+                            title=title, artist=artist, is_cover=is_cover
+                        )
+                    except IntegrityError:
+                        song = Song.objects.get(title=title, artist=artist)
+                else:
+                    song.is_cover = is_cover
+                    song.save()
+
+                if score:
+                    try:
+                        s = int(score)
+                        if 0 <= s <= 100:
+                            Rating.objects.update_or_create(
+                                user=user, song=song, defaults={"score": s}
+                            )
+                    except ValueError:
+                        pass
+
+            return redirect("artist_songs", artist_id=artist.id)
+
+        else:
+            # 複数歌手モード
+            touched = set()
+            indices = _extract_indices(request.POST, "song_title_")
+            for i in indices:
+                title = request.POST.get(f"song_title_{i}", "").strip()
+                if not title:
+                    continue
+
+                score_str = request.POST.get(f"song_score_{i}", "").strip()
+                is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
+                artist_id_i = request.POST.get(f"artist_id_{i}")
+                new_artist_name_i = request.POST.get(f"new_artist_name_{i}", "").strip()
+                region_id_i = request.POST.get(f"region_id_{i}")
+
+                # 行ごとに歌手決定
+                artist = None
+                if artist_id_i:
+                    try:
+                        artist = Artist.objects.get(id=artist_id_i)
+                    except Artist.DoesNotExist:
+                        continue
+                elif new_artist_name_i:
+                    if not region_id_i:
+                        continue
+                    try:
+                        region = MusicRegion.objects.get(id=region_id_i)
+                    except MusicRegion.DoesNotExist:
+                        continue
+                    artist, _ = Artist.objects.get_or_create(
+                        name=new_artist_name_i, defaults={"region": region}
+                    )
+                else:
+                    continue
+
+                # 曲登録/更新
+                song = Song.objects.filter(title=title, artist=artist).first()
+                if not song:
+                    try:
+                        song = Song.objects.create(
+                            title=title, artist=artist, is_cover=is_cover
+                        )
+                    except IntegrityError:
+                        song = Song.objects.get(title=title, artist=artist)
+                else:
+                    song.is_cover = is_cover
+                    song.save()
+
+                if score_str:
+                    try:
+                        s = int(score_str)
+                        if 0 <= s <= 100:
+                            Rating.objects.update_or_create(
+                                user=user, song=song, defaults={"score": s}
+                            )
+                    except ValueError:
+                        pass
+
+                touched.add(artist.id)
+
+            if not touched:
+                return render_form("有効な入力行がありません。")
+            if len(touched) == 1:
+                return redirect("artist_songs", artist_id=touched.pop())
+            return redirect(f"{request.path}?mode=multi&done=1")
+
+    return render_form()
 
 
 def signup_view(request):
