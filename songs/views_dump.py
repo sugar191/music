@@ -40,6 +40,12 @@ def _dump_one(table: str, outfile: str):
         PA_DB_PORT,
         "-u",
         PA_DB_USER,
+    ]
+    # パスワードがある場合のみ付与（= None 対策）
+    if PA_DB_PASS:
+        cmd.append(f"--password={PA_DB_PASS}")
+
+    cmd += [
         "--single-transaction",
         "--quick",
         "--skip-lock-tables",
@@ -50,9 +56,6 @@ def _dump_one(table: str, outfile: str):
         PA_DB_NAME,
         table,
     ]
-    # ★ パスワードが設定されているときだけ付ける
-    if PA_DB_PASS:
-        cmd.insert(6, f"--password={PA_DB_PASS}")  # 位置はどこでもOK、見やすさでここに
 
     with open(outfile, "wb") as f:
         subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.PIPE, timeout=600)
