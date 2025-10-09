@@ -13,6 +13,7 @@ from .views import (
     song_ranking_view,
     artist_search_view,
 )
+from . import views_dump
 
 urlpatterns = [
     path("ranking/", ranking_view, name="ranking"),
@@ -31,4 +32,7 @@ urlpatterns = [
         name="login",
     ),
     path("signup/", signup_view, name="signup"),
+    path("api/dump/run", views_dump.dump_tables, name="dump_tables"),
+    path("api/dump/list", views_dump.list_dumps, name="list_dumps"),
+    path("api/dump/download", views_dump.download_dump, name="download_dump"),
 ]
