@@ -34,18 +34,6 @@ def _dump_one(table: str, outfile: str):
     os.makedirs(DUMP_DIR, exist_ok=True)
     cmd = [
         "mysqldump",
-        "-h",
-        PA_DB_HOST,
-        "-P",
-        PA_DB_PORT,
-        "-u",
-        PA_DB_USER,
-    ]
-    # パスワードがある場合のみ付与（= None 対策）
-    if PA_DB_PASS:
-        cmd.append(f"--password={PA_DB_PASS}")
-
-    cmd += [
         "--single-transaction",
         "--quick",
         "--skip-lock-tables",
@@ -56,7 +44,6 @@ def _dump_one(table: str, outfile: str):
         PA_DB_NAME,
         table,
     ]
-
     with open(outfile, "wb") as f:
         subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.PIPE, timeout=600)
 
