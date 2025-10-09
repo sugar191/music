@@ -11,11 +11,12 @@ from django.views.decorators.http import require_POST, require_GET
 from django.views.decorators.csrf import csrf_exempt
 
 EXPORT_API_TOKEN = getattr(settings, "EXPORT_API_TOKEN", "put-a-long-random-token")
-PA_DB_HOST = os.getenv("DB_HOST")
-PA_DB_PORT = os.getenv("DB_PORT")
-PA_DB_NAME = os.getenv("DB_NAME")
-PA_DB_USER = os.getenv("DB_USER")
-PA_DB_PASS = os.getenv("DB_PASSWORD")
+DB = settings.DATABASES["default"]
+PA_DB_HOST = DB.get("HOST") or "127.0.0.1"
+PA_DB_PORT = str(DB.get("PORT") or "3306")
+PA_DB_NAME = DB.get("NAME")
+PA_DB_USER = DB.get("USER")
+PA_DB_PASS = DB.get("PASSWORD")  # ← ここは None の可能性もあるので後段で条件付き
 
 DUMP_DIR = os.path.expanduser("~/dumps/music")
 
@@ -39,8 +40,6 @@ def _dump_one(table: str, outfile: str):
         PA_DB_PORT,
         "-u",
         PA_DB_USER,
-        "--password="
-        + PA_DB_PASS,  # ※ログに出さない運用前提。気になる場合は ~/.my.cnf を使う
         "--single-transaction",
         "--quick",
         "--skip-lock-tables",
@@ -51,8 +50,11 @@ def _dump_one(table: str, outfile: str):
         PA_DB_NAME,
         table,
     ]
+    # ★ パスワードが設定されているときだけ付ける
+    if PA_DB_PASS:
+        cmd.insert(6, f"--password={PA_DB_PASS}")  # 位置はどこでもOK、見やすさでここに
+
     with open(outfile, "wb") as f:
-        # タイムアウト保険（10分）
         subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.PIPE, timeout=600)
 
 
