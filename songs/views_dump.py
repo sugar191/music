@@ -8,6 +8,7 @@ from django.http import (
     Http404,
 )
 from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.csrf import csrf_exempt
 
 EXPORT_API_TOKEN = getattr(settings, "EXPORT_API_TOKEN", "put-a-long-random-token")
 PA_DB_HOST = os.getenv("DB_HOST")
@@ -55,6 +56,7 @@ def _dump_one(table: str, outfile: str):
         subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.PIPE, timeout=600)
 
 
+@csrf_exempt
 @require_POST
 def dump_tables(request):
     if not _auth(request):
