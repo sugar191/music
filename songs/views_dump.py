@@ -53,18 +53,30 @@ def _dump_one(table: str, outfile: str):
 def dump_tables(request):
     if not _auth(request):
         return HttpResponse(status=401)
+
     ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    os.makedirs(DUMP_DIR, exist_ok=True)
+
+    # 依存元 → 依存先の順で “作成” しておくと扱いやすい（インポートは逆順）
+    reg_path = os.path.join(DUMP_DIR, f"pa_musicregion_{ts}.sql")
     artist_path = os.path.join(DUMP_DIR, f"pa_artist_{ts}.sql")
     song_path = os.path.join(DUMP_DIR, f"pa_song_{ts}.sql")
+    rating_path = os.path.join(DUMP_DIR, f"pa_rating_{ts}.sql")
+
     try:
-        # 依存順（artist→song）
+        # すべて “データのみ” ダンプ
+        _dump_one("songs_musicregion", reg_path)
         _dump_one("songs_artist", artist_path)
         _dump_one("songs_song", song_path)
+        _dump_one("songs_rating", rating_path)
     except subprocess.CalledProcessError as e:
         return JsonResponse(
             {"ok": False, "stderr": e.stderr.decode("utf-8", "ignore")}, status=500
         )
-    return JsonResponse({"ok": True, "files": [artist_path, song_path]})
+
+    return JsonResponse(
+        {"ok": True, "files": [reg_path, artist_path, song_path, rating_path]}
+    )
 
 
 @require_GET
