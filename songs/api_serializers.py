@@ -30,14 +30,24 @@ class SongSerializer(serializers.ModelSerializer):
 
 
 class RatingSerializer(serializers.ModelSerializer):
-    artist = serializers.CharField(write_only=True)
-    title = serializers.CharField(write_only=True)
+    artist = serializers.CharField(write_only=True, required=False)
+    title = serializers.CharField(write_only=True, required=False)
+    song_id = serializers.IntegerField(write_only=True, required=False)
     score = serializers.IntegerField(min_value=0, max_value=100)
 
     class Meta:
         model = Rating
-        fields = ["song", "score", "artist", "title"]  # song は応答で埋まることあり
+        fields = ["song", "score", "artist", "title", "song_id"]  # song は read_only
         extra_kwargs = {"song": {"read_only": True}}
+
+    def validate(self, attrs):
+        # song_id があれば artist/title は不要（後方互換のため両方許容）
+        sid = attrs.get("song_id")
+        artist = attrs.get("artist")
+        title = attrs.get("title")
+        if not sid and not (artist and title):
+            raise serializers.ValidationError("song_id または artist/title が必要です")
+        return attrs
 
 
 class RatingExportSerializer(serializers.Serializer):

@@ -52,15 +52,35 @@ def get_score(request):
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 def update_score(request):
-    artist = request.data.get("artist")
-    title = request.data.get("title")
-    score = request.data.get("score")
-    if not artist or not title or score is None:
-        return Response({"detail": "artist/title/score が必要です"}, status=400)
+    # 1) まず song_id を見る（優先）
+    sid = request.data.get("song_id")
+    song = None
+    if sid:
+        try:
+            song = (
+                Song.objects.select_related("artist")
+                .only("id", "title", "artist__name")
+                .get(id=int(sid))
+            )
+        except Song.DoesNotExist:
+            return Response({"detail": "song not found"}, status=404)
 
-    song = find_song_loose_readonly(artist, title)
-    if not song:
-        return Response({"detail": "song not found"}, status=404)
+    # 2) 無ければ従来どおり artist/title で検索
+    if song is None:
+        artist = request.data.get("artist")
+        title = request.data.get("title")
+        score = request.data.get("score")
+        if not artist or not title or score is None:
+            return Response(
+                {"detail": "song_id または artist/title/score が必要です"}, status=400
+            )
+        song = find_song_loose_readonly(artist, title)
+        if not song:
+            return Response({"detail": "song not found"}, status=404)
+    else:
+        score = request.data.get("score")
+        if score is None:
+            return Response({"detail": "score が必要です"}, status=400)
 
     rating, created = Rating.objects.update_or_create(
         user=request.user, song=song, defaults={"score": int(score)}
