@@ -91,3 +91,21 @@ class RankView(models.Model):
 
     def __str__(self):
         return f"{self.user_id} - {self.song_title} : {self.score}"
+
+
+class ArtistSongView(models.Model):
+    artist_id = models.IntegerField()
+    artist_name = models.CharField(max_length=100)
+    region_id = models.IntegerField()
+    artist_format_name = models.CharField(max_length=100, null=True, blank=True)
+    song_id = models.IntegerField()
+    song_title = models.CharField(max_length=100)
+    is_cover = models.BooleanField(null=True, blank=True)
+    song_format_title = models.CharField(max_length=100, null=True, blank=True)
+
+    class Meta:
+        managed = False  # DjangoがCREATE TABLEしないように
+        db_table = "artist_song_view"
+
+    def __str__(self):
+        return f"{self.artist_name} : {self.song_title}"

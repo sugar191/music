@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Artist, Song, Rating
+from .models import Artist, Song, Rating, ArtistSongView
 from .utils import normalize
 
 
@@ -65,3 +65,23 @@ class ArtistRegionSerializer(serializers.ModelSerializer):
 
     def get_region(self, obj):
         return obj.region.code if obj.region else None
+
+
+class ArtistSongRowSerializer(serializers.ModelSerializer):
+    # SQLite 側に合わせたキー名へ変換（artist_name -> artist, song_title -> title）
+    artist = serializers.CharField(source="artist_name")
+    title = serializers.CharField(source="song_title")
+
+    class Meta:
+        model = ArtistSongView
+        fields = ["song_id", "artist", "title"]  # 必要十分。増やすならここに追加
+
+
+class RatingRowSerializer(serializers.ModelSerializer):
+    song_id = serializers.IntegerField(source="song.id", read_only=True)
+    score = serializers.IntegerField()
+    updated_at = serializers.DateTimeField()
+
+    class Meta:
+        model = Rating
+        fields = ["song_id", "score", "updated_at"]

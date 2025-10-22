@@ -10,4 +10,14 @@ urlpatterns = [
     path(
         "artists/regions", api_views.export_artist_regions, name="export_artist_regions"
     ),
+    path(
+        "artist_song_view",
+        api_views.ArtistSongExport.as_view(),
+        name="artist-song-export",
+    ),
+    path(
+        "songs_rating",
+        api_views.SongsRatingExport.as_view(),
+        name="songs-rating-export",
+    ),
 ]

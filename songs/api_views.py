@@ -1,11 +1,18 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_datetime
 from django.utils.encoding import iri_to_uri
 from rest_framework import status, permissions
+from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from .models import Artist, Song, Rating
-from .api_serializers import RatingExportSerializer
+from rest_framework.views import APIView
+from .models import Artist, Song, Rating, ArtistSongView, Rating
+from .api_serializers import (
+    RatingExportSerializer,
+    ArtistSongRowSerializer,
+    RatingRowSerializer,
+)
 from .utils import normalize
 
 
@@ -150,3 +157,91 @@ def export_artist_regions(request):
     if request.query_params.get("download") in ("1", "true", "yes"):
         resp["Content-Disposition"] = 'attachment; filename="artist_regions.json"'
     return resp
+
+
+class ArtistSongExport(APIView):
+    """
+    GET /api/artist_song_view
+      オプション:
+        ?q=...          （artist/title の部分一致）
+        ?artist=...     （artist_name の部分一致）
+        ?title=...      （song_title の部分一致）
+        ?limit=1000     （安全のための上限。未指定=全件）
+    """
+
+    permission_classes = [permissions.AllowAny]  # 公開でOKならこのまま
+
+    def get(self, request):
+        qs = ArtistSongView.objects.all().order_by("song_id")
+
+        q = request.query_params.get("q")
+        if q:
+            qs = qs.filter(artist_name__icontains=q) | qs.filter(
+                song_title__icontains=q
+            )
+
+        artist = request.query_params.get("artist")
+        if artist:
+            qs = qs.filter(artist_name__icontains=artist)
+
+        title = request.query_params.get("title")
+        if title:
+            qs = qs.filter(song_title__icontains=title)
+
+        # 取り過ぎ防止の軽い上限
+        limit = request.query_params.get("limit")
+        if limit:
+            try:
+                limit = max(1, min(100000, int(limit)))
+                qs = qs[:limit]
+            except ValueError:
+                raise ValidationError({"limit": "must be integer"})
+
+        data = ArtistSongRowSerializer(qs, many=True).data
+        return Response(data)
+
+
+class SongsRatingExport(APIView):
+    """
+    GET /api/songs_rating
+      必須:
+        ?user_id=1
+      オプション:
+        ?updated_after=ISO8601（差分抽出）
+        ?limit=100000         （安全のための上限）
+    """
+
+    permission_classes = [permissions.IsAuthenticated]  # 個人データなので基本は要認証
+
+    def get(self, request):
+        user_id = request.query_params.get("user_id")
+        if not user_id:
+            raise ValidationError({"user_id": "this query param is required"})
+        try:
+            uid = int(user_id)
+        except ValueError:
+            raise ValidationError({"user_id": "must be integer"})
+
+        qs = (
+            Rating.objects.select_related("song")
+            .filter(user_id=uid)
+            .order_by("song_id")
+        )
+
+        ua = request.query_params.get("updated_after")
+        if ua:
+            dt = parse_datetime(ua)
+            if not dt:
+                raise ValidationError({"updated_after": "invalid datetime"})
+            qs = qs.filter(updated_at__gte=dt)
+
+        limit = request.query_params.get("limit")
+        if limit:
+            try:
+                limit = max(1, min(100000, int(limit)))
+                qs = qs[:limit]
+            except ValueError:
+                raise ValidationError({"limit": "must be integer"})
+
+        data = RatingRowSerializer(qs, many=True).data
+        return Response(data)
