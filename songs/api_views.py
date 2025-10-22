@@ -245,3 +245,22 @@ class SongsRatingExport(APIView):
 
         data = RatingRowSerializer(qs, many=True).data
         return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def get_song(request):
+    artist = request.query_params.get("artist")
+    title = request.query_params.get("title")
+    if not artist or not title:
+        return Response({"detail": "artist と title が必要です"}, status=400)
+
+    song = find_song_loose_readonly(artist, title)
+    if not song:
+        return Response({"detail": "song not found"}, status=404)
+
+    return Response(
+        {
+            "song_id": song.id,
+        }
+    )

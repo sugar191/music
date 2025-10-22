@@ -20,4 +20,5 @@ urlpatterns = [
         api_views.SongsRatingExport.as_view(),
         name="songs-rating-export",
     ),
+    path("get_song", api_views.get_song.as_view(), name="get_song"),
 ]
