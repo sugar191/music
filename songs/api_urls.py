@@ -21,4 +21,9 @@ urlpatterns = [
         name="songs-rating-export",
     ),
     path("get_song", api_views.get_song, name="get_song"),
+    path(
+        "songs/create_with_artist",
+        api_views.create_song_with_artist,
+        name="create_song_with_artist",
+    ),
 ]

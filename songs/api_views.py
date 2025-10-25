@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 from django.utils.encoding import iri_to_uri
@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Artist, Song, Rating, ArtistSongView, Rating
+from .models import Artist, Song, Rating, ArtistSongView, Rating, MusicRegion
 from .api_serializers import (
     RatingExportSerializer,
     ArtistSongRowSerializer,
@@ -263,4 +263,92 @@ def get_song(request):
         {
             "song_id": song.id,
         }
+    )
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])  # 認証不要なら AllowAny に変えてOK
+@transaction.atomic
+def create_song_with_artist(request):
+    """
+    POST /api/songs/create_with_artist
+    body: {
+      "artist_name": "浜田省吾",
+      "title": "もうひとつの土曜日",
+      "region_id": 1,
+      "is_cover": false
+    }
+    成功時: 201
+      { "artist_id": 123, "song_id": 456, "created_artist": true/false, "created_song": true }
+    既存曲がある場合: 409
+      { "detail": "song already exists", "artist_id": 123, "song_id": 456 }
+    バリデーション: 400
+    """
+
+    data = request.data
+    artist_name = (data.get("artist_name") or "").strip()
+    title = (data.get("title") or "").strip()
+    region_id = data.get("region_id")
+    is_cover = bool(data.get("is_cover", False))
+
+    if not artist_name or not title or region_id is None:
+        return Response(
+            {"detail": "artist_name, title, region_id は必須です"}, status=400
+        )
+
+    # region の存在チェック
+    try:
+        region = MusicRegion.objects.only("id").get(id=int(region_id))
+    except (MusicRegion.DoesNotExist, ValueError):
+        return Response({"detail": "region_id が不正です"}, status=400)
+
+    # Artist を name+region で取得 or 作成（正規化も保存）
+    fmt_artist = normalize(artist_name)
+    artist, created_artist = Artist.objects.get_or_create(
+        name=artist_name,
+        region=region,
+        defaults={"format_name": fmt_artist},
+    )
+
+    # Song の重複チェック（title+artist）
+    fmt_title = normalize(title)
+    existing = Song.objects.filter(artist=artist, title=title).only("id").first()
+    if existing:
+        return Response(
+            {
+                "detail": "song already exists",
+                "artist_id": artist.id,
+                "song_id": existing.id,
+            },
+            status=409,
+        )
+
+    # 作成
+    try:
+        song = Song.objects.create(
+            title=title,
+            format_title=fmt_title,
+            artist=artist,
+            is_cover=is_cover,
+        )
+    except IntegrityError:
+        # UNIQUE(title, artist_id) に衝突した場合の保険
+        dup = Song.objects.filter(artist=artist, title=title).only("id").first()
+        return Response(
+            {
+                "detail": "song already exists",
+                "artist_id": artist.id,
+                "song_id": dup.id if dup else None,
+            },
+            status=409,
+        )
+
+    return Response(
+        {
+            "artist_id": artist.id,
+            "song_id": song.id,
+            "created_artist": created_artist,
+            "created_song": True,
+        },
+        status=201,
     )
