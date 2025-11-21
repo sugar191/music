@@ -9,6 +9,8 @@ from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import F, Q, OuterRef, Subquery, IntegerField, Count
 from django.db.models.functions import Lower, Substr
+from django.db.models import Value
+from django.db.models import CharField
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
@@ -30,7 +32,7 @@ MUSIC_DIR = r"C:\Users\pawab\Music"
 @login_required
 def ranking_view(request):
     # プルダウンの選択肢を取得
-    ranking_options = [5, 7, 10, 15]
+    ranking_options = [5, 10, 15, 20]
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
@@ -128,7 +130,8 @@ def artist_list_view(request):
     top5 = call_artist_top_n(selected_user.id, 5, region_id)
     top10 = call_artist_top_n(selected_user.id, 10, region_id)
     top15 = call_artist_top_n(selected_user.id, 15, region_id)
-    other_artists = call_artist_insufficient(selected_user.id, 5, region_id)
+    top20 = call_artist_top_n(selected_user.id, 20, region_id)
+    #    other_artists = call_artist_insufficient(selected_user.id, 5, region_id)
 
     return render(
         request,
@@ -141,7 +144,8 @@ def artist_list_view(request):
             "top5": top5,
             "top10": top10,
             "top15": top15,
-            "other_artists": other_artists,
+            "top20": top20,
+            #            "other_artists": other_artists,
         },
     )
 
@@ -604,31 +608,41 @@ def missing_audio_files_view(request):
     )
 
 
+def kana_to_hiragana(s: str) -> str:
+    if not s:
+        return s
+    result = []
+    for ch in s:
+        code = ord(ch)
+        # カタカナ → ひらがな
+        if 0x30A1 <= code <= 0x30F6:  # ァ〜ヶ
+            result.append(chr(code - 0x60))
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
 # 歌手検索
 @login_required
 def artist_search_view(request):
     regions = MusicRegion.objects.all()
 
-    # 入力したパラメータを取得
+    # region_id
     if "region_id" not in request.GET:
-        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
         region_id = "1"
     else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
-    # 動的条件（例：?region=1&prefix=A）
-    prefix = request.GET.get("prefix")  # 先頭文字（A など）
-    # user_id は現在ログインユーザーを利用（固定の1ではない）
+        region_id = request.GET.get("region_id") or None
+
+    prefix = request.GET.get("prefix", "")
+    # 入力された接頭辞を ひらがな + 小文字 に正規化
+    prefix_norm = kana_to_hiragana(prefix.lower()) if prefix else ""
+
     user = request.user
+    filter_top = request.GET.get("top")
 
-    filter_top = request.GET.get("top")  # '5', '10', '15' のいずれか
-
+    # まずは今まで通り DB 側で集計
     qs = Artist.objects.select_related("region").annotate(
-        # COUNT(1) song_count
         song_count=Count("songs", filter=Q(songs__is_cover=False), distinct=True),
-        # SUM(CASE WHEN r.id IS NULL THEN 0 ELSE 1 END) rating_count
-        # => ユーザーでフィルタした Rating を Count
         rating_count=Count(
             "songs__ratings",
             filter=Q(songs__is_cover=False, songs__ratings__user=user),
@@ -639,30 +653,32 @@ def artist_search_view(request):
     if region_id:
         qs = qs.filter(region_id=region_id)
 
-    if prefix:
-        p = (prefix or "").strip().lower()
-        qs = qs.annotate(name_lc=Lower("name")).filter(name_lc__startswith=p)
-    else:
-        prefix = ""
-
-    # ORDER BY UPPER(a.name) 相当 → Lower()でケース無視ソート
-    qs = qs.order_by(Lower("name"))
-
-    # プルダウンの条件
+    # プルダウンの条件（ここも DB 側で）
     if filter_top in ["5", "10", "15"]:
         n = int(filter_top)
         qs = qs.filter(song_count__gte=n, rating_count__lt=n)
     elif filter_top == "0":
         qs = qs.filter(song_count__gt=F("rating_count"))
-    # ページング（任意）
-    # from django.core.paginator import Paginator
-    # page_obj = Paginator(qs, 50).get_page(request.GET.get("page"))
+
+    # ここから Python 側で ひらがな/カタカナ無視のフィルタ & ソート
+    artists = list(qs)  # クエリを評価してリスト化（annotation はそのまま乗ってる）
+
+    # アーティスト名を ひらがな + 小文字 に正規化して持たせる
+    for a in artists:
+        a.name_norm = kana_to_hiragana(a.name.lower())
+
+    # prefix フィルタ（ひらがな/カタカナ無視）
+    if prefix_norm:
+        artists = [a for a in artists if a.name_norm.startswith(prefix_norm)]
+
+    # ソートも正規化した名前で
+    artists.sort(key=lambda x: x.name_norm)
 
     return render(
         request,
         "songs/artist_search.html",
         {
-            "artists": qs,  # or "page_obj": page_obj
+            "artists": artists,
             "regions": regions,
             "region_id": region_id,
             "prefix": prefix,

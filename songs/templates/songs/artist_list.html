@@ -65,6 +65,21 @@
             </table>
         </div>
         <div class="artist-card">
+            <div class="artist-card-header">TOP20</div>
+            <table>
+                <tbody>
+                    {% for artist_score in top20 %}
+                        <tr>
+                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
+                            <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <!--
+        <div class="artist-card">
             <div class="artist-card-header">その他</div>
             <table>
                 <tbody>
@@ -78,5 +93,6 @@
                 </tbody>
             </table>
         </div>
+        -->
     </div>
 {% endblock %}
