@@ -26,4 +26,6 @@ urlpatterns = [
         api_views.create_song_with_artist,
         name="create_song_with_artist",
     ),
+    path("artists/", api_views.artist_list),
+    path("songs/", api_views.song_list),
 ]

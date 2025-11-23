@@ -9,6 +9,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import Artist, Song, Rating, ArtistSongView, Rating, MusicRegion
 from .api_serializers import (
+    ArtistSerializer,
+    SongSerializer,
     RatingExportSerializer,
     ArtistSongRowSerializer,
     RatingRowSerializer,
@@ -352,3 +354,19 @@ def create_song_with_artist(request):
         },
         status=201,
     )
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def artist_list(request):
+    qs = Artist.objects.all().order_by("id")
+    data = ArtistSerializer(qs, many=True).data
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def song_list(request):
+    qs = Song.objects.all().order_by("id").select_related("artist")
+    data = SongSerializer(qs, many=True).data
+    return Response(data)
