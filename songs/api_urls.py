@@ -28,4 +28,9 @@ urlpatterns = [
     ),
     path("artists/", api_views.artist_list),
     path("songs/", api_views.song_list),
+    path(
+        "songs/catalog",
+        api_views.song_catalog_for_android,
+        name="song-catalog-android",
+    ),
 ]

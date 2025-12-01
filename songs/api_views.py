@@ -370,3 +370,40 @@ def song_list(request):
     qs = Song.objects.all().order_by("id").select_related("artist")
     data = SongSerializer(qs, many=True).data
     return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def song_catalog_for_android(request):
+    """
+    GET /api/songs/catalog
+
+    Android 向けの簡易カタログ。
+    - Django Song.id
+    - 表示用の artist / title
+    - 正規化済み artist_norm / title_norm
+    - （あれば）duration_ms
+    """
+    qs = Song.objects.select_related("artist").order_by("id")
+
+    data = []
+    for s in qs:
+        artist_name = s.artist.name
+        title = s.title
+
+        artist_norm = getattr(s.artist, "format_name", None) or normalize(artist_name)
+        title_norm = getattr(s, "format_title", None) or normalize(title)
+
+        data.append(
+            {
+                "id": s.id,
+                "artist": artist_name,
+                "title": title,
+                "artist_norm": artist_norm,
+                "title_norm": title_norm,
+                # duration は持っていればでOK（なければ None）
+                "duration_ms": getattr(s, "duration_ms", None),
+            }
+        )
+
+    return Response(data)
