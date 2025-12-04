@@ -206,47 +206,47 @@ class ArtistSongExport(APIView):
 class SongsRatingExport(APIView):
     """
     GET /api/songs_rating
-      必須:
-        ?user_id=1
-      オプション:
-        ?updated_after=ISO8601（差分抽出）
-        ?limit=100000         （安全のための上限）
+
+    クエリパラメータ:
+      - user_id: 任意。指定した場合はそのユーザーのみ。
+      - updated_after: 任意。ISO8601形式。更新日時がこれ以降のものだけ返す。
+      - limit: 任意。最大件数（安全のため上限あり）。
     """
 
-    permission_classes = [permissions.IsAuthenticated]  # 個人データなので基本は要認証
+    permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
+        qs = Rating.objects.select_related("song", "user").order_by("song_id")
+
+        # user_id は「必須」から「任意フィルタ」へ変更
         user_id = request.query_params.get("user_id")
-        if not user_id:
-            raise ValidationError({"user_id": "this query param is required"})
-        try:
-            uid = int(user_id)
-        except ValueError:
-            raise ValidationError({"user_id": "must be integer"})
+        if user_id:
+            try:
+                uid = int(user_id)
+            except ValueError:
+                raise ValidationError({"user_id": "must be integer"})
+            qs = qs.filter(user_id=uid)
 
-        qs = (
-            Rating.objects.select_related("song")
-            .filter(user_id=uid)
-            .order_by("song_id")
-        )
-
-        ua = request.query_params.get("updated_after")
-        if ua:
-            dt = parse_datetime(ua)
+        # 差分取得用（すでにあればそのまま流用）
+        updated_after = request.query_params.get("updated_after")
+        if updated_after:
+            dt = parse_datetime(updated_after)
             if not dt:
                 raise ValidationError({"updated_after": "invalid datetime"})
             qs = qs.filter(updated_at__gte=dt)
 
+        # 件数制限
         limit = request.query_params.get("limit")
         if limit:
             try:
-                limit = max(1, min(100000, int(limit)))
-                qs = qs[:limit]
+                n = int(limit)
             except ValueError:
                 raise ValidationError({"limit": "must be integer"})
+            n = max(1, min(100000, n))  # 上限はお好みで
+            qs = qs[:n]
 
-        data = RatingRowSerializer(qs, many=True).data
-        return Response(data)
+        serializer = RatingRowSerializer(qs, many=True)
+        return Response(serializer.data)
 
 
 @api_view(["GET"])

@@ -78,10 +78,16 @@ class ArtistSongRowSerializer(serializers.ModelSerializer):
 
 
 class RatingRowSerializer(serializers.ModelSerializer):
+    # song_id, user_id を数値で返す
     song_id = serializers.IntegerField(source="song.id", read_only=True)
-    score = serializers.IntegerField()
-    updated_at = serializers.DateTimeField()
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
 
     class Meta:
         model = Rating
-        fields = ["song_id", "score", "updated_at"]
+        fields = [
+            "user_id",
+            "song_id",
+            "score",
+            "created_at",
+            "updated_at",
+        ]
