@@ -654,9 +654,9 @@ def artist_search_view(request):
         qs = qs.filter(region_id=region_id)
 
     # プルダウンの条件（ここも DB 側で）
-    if filter_top in ["5", "10", "15"]:
+    if filter_top in ["5", "10", "15", "20"]:
         n = int(filter_top)
-        qs = qs.filter(song_count__gte=n, rating_count__lt=n)
+        qs = qs.filter(song_count__gte=n - 5, song_count__lt=n)
     elif filter_top == "0":
         qs = qs.filter(song_count__gt=F("rating_count"))
 

@@ -16,9 +16,10 @@
             <select id="top" name="top" onchange="this.form.submit()">
                 <option value="">採点</option>
                 <option value="0"  {% if request.GET.top == '0' %}selected{% endif %}>未採点あり</option>
-                <option value="5"  {% if request.GET.top == '5' %}selected{% endif %}>~5曲</option>
-                <option value="10" {% if request.GET.top == '10' %}selected{% endif %}>~10曲</option>
-                <option value="15" {% if request.GET.top == '15' %}selected{% endif %}>~15曲</option>
+                <option value="5"  {% if request.GET.top == '5' %}selected{% endif %}>1~4曲登録</option>
+                <option value="10" {% if request.GET.top == '10' %}selected{% endif %}>5~9曲登録</option>
+                <option value="15" {% if request.GET.top == '15' %}selected{% endif %}>10~14曲登録</option>
+                <option value="20" {% if request.GET.top == '20' %}selected{% endif %}>15~19曲登録</option>
             </select>
         </form>
     </div>
