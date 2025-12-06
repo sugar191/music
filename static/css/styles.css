@@ -376,3 +376,7 @@ select option {
 .editable-score:hover {
     color: #551A8B; /* 少し濃い青に */
 }
+
+.dup-title {
+    background-color: #ffa5a5;  /* 薄い赤 */
+}

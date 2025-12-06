@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from collections import defaultdict
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
@@ -392,14 +393,31 @@ def bulk_add_view(request):
     # 初期表示で出しておく行数（増減可能）
     initial_rows = 5
 
+    # ★ 追加：必ず初期化しておく
+    existing_songs = []
+    existing_titles_json = "[]"
+
     if selected_artist_id:
         try:
             sel_artist = Artist.objects.select_related("region").get(
                 id=selected_artist_id
             )
             selected_region_id = str(sel_artist.region_id)
+
+            # この歌手の既存曲を取得
+            existing_songs = list(
+                Song.objects.filter(artist=sel_artist).order_by("title")
+            )
+            # タイトルだけを JSON にして JS に渡す
+            existing_titles_json = json.dumps(
+                [s.title for s in existing_songs],
+                ensure_ascii=False,
+            )
         except Artist.DoesNotExist:
             selected_artist_id = ""
+            selected_region_id = ""
+            existing_songs = []
+            existing_titles_json = "[]"
 
     def render_form(error=None):
         ctx = {
@@ -411,6 +429,8 @@ def bulk_add_view(request):
             "range_initial": range(1, initial_rows + 1),
             "mode": mode,
             "done": done,
+            "existing_songs": existing_songs,
+            "existing_titles_json": existing_titles_json,  # ★追加
         }
         if error:
             ctx["error"] = error

@@ -49,6 +49,25 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if existing_songs %}
+          <h3 style="margin-top:16px;">この歌手の登録済みの曲（{{ existing_songs|length }}件）</h3>
+          <table class="existing-song-list">
+            <thead>
+              <tr>
+                <th>曲名</th>
+                <th>カバー</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in existing_songs %}
+                <tr>
+                  <td>{{ s.title }}</td>
+                  <td>{% if s.is_cover %}カバー{% else %}-{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
       </div>
 
       <!-- ===== 複数歌手モード ===== -->
@@ -170,6 +189,25 @@ document.addEventListener("DOMContentLoaded", function () {
   const regionSelect = document.getElementById("region-select");
   const artistSelect = document.getElementById("artist-select");
   const artistInput  = document.getElementById("artist-name-input");
+  // ★ 単一モード：歌手を選んだら artist_id を付けて再ロード
+  if (artistSelect) {
+    artistSelect.addEventListener("change", function () {
+      const artistId = this.value;
+      const params = new URLSearchParams(window.location.search);
+
+      // 単一モード固定
+      params.set("mode", "single");
+
+      if (artistId) {
+        params.set("artist_id", artistId);
+      } else {
+        params.delete("artist_id");
+      }
+
+      // 同じパスでクエリだけ差し替え
+      window.location.search = params.toString();
+    });
+  }
   function filterArtistsByRegionSingle(regionId) {
     if (!artistSelect) return;
     Array.from(artistSelect.options).forEach(option => {
@@ -318,6 +356,38 @@ document.addEventListener("DOMContentLoaded", function () {
       if (matched) e.target.value = "";
     }
   });
+
+    // ===== ここから重複チェック =====
+  // Django から渡された JSON を JS 配列に戻す
+  const existingTitles = JSON.parse('{{ existing_titles_json|escapejs }}');
+
+  function isDuplicateTitle(value) {
+    if (!value) return false;
+    const v = value.trim().toLowerCase();
+    if (!v) return false;
+    return existingTitles.some(t => t.toLowerCase() === v);
+  }
+
+  function updateDuplicateStyle(input) {
+    if (isDuplicateTitle(input.value)) {
+      input.classList.add("dup-title");
+    } else {
+      input.classList.remove("dup-title");
+    }
+  }
+
+  // 単一モードの曲名入力に対して、入力のたびにチェック
+  document.addEventListener("input", function (e) {
+    if (e.target.matches('#single-tbody input[name^="song_title_"]')) {
+      updateDuplicateStyle(e.target);
+    }
+  });
+
+  // 初期行にも一応チェック（既存値が入っている場合用）
+  document.querySelectorAll('#single-tbody input[name^="song_title_"]').forEach(input => {
+    updateDuplicateStyle(input);
+  });
+  // ===== 重複チェックここまで =====
 });
 </script>
 {% endblock %}
