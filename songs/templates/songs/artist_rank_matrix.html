@@ -36,7 +36,7 @@
         <tbody>
             {% for r in rows %}
             <tr>
-                <td>{{ r.artist_name }}</td>
+                <td><a href="{% url 'artist_songs' r.artist_id %}">{{ r.artist_name }}</a></td>
                 <td style="text-align:right;">{{ r.rank_5|default:"-" }}</td>
                 <td style="text-align:right;">{{ r.rank_10|default:"-" }}</td>
                 <td style="text-align:right;">{{ r.rank_15|default:"-" }}</td>
