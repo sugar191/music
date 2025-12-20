@@ -32,13 +32,25 @@
 
         <!-- 固定メニューバー -->
         <div class="navbar">
+            <!-- スマホでも常時表示（≡ボタン + 固定2リンク） -->
+            <div class="menu-head">
+                <button class="menu-toggle" aria-label="メニュー切り替え">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+
+                <nav class="menu-pinned" aria-label="よく使うメニュー">
+                    <a href="/ranking/">歌手別TOP</a>
+                    <a href="/artists/">歌手TOP</a>
+                    <a href="/artist_search/">歌手検索</a>
+                </nav>
+            </div>
+
+            <!-- ここに「残りのメニュー」全部 -->
             <ul class="menu" id="menu">
-                <li><a href="/ranking/">歌手別TOP</a></li>
-                <li><a href="/artists/">歌手TOP</a></li>
+                <!-- 例: ここは従来の横並びメニューをそのまま入れる -->
+                <li><a href="/artist_rank_matrix/">歌手ランク</a></li>
                 <li><a href="/song_ranking/">全曲TOP</a></li>
-                <li><a href="/artist_search/">検索</a></li>
                 <li><a href="/songs/bulk_add/">曲追加</a></li>
-                <li class="pc-cell"><a href="/songs/">採点</a></li>
             </ul>
         </div>
 

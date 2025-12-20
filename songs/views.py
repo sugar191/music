@@ -152,6 +152,73 @@ def artist_list_view(request):
 
 
 @login_required
+def artist_rank_matrix_view(request):
+    regions = MusicRegion.objects.all()
+    users = User.objects.all().order_by("username")
+
+    # region_id（他画面と揃える）
+    if "region_id" not in request.GET:
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
+
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+
+    Ns = [5, 10, 15, 20]
+
+    # artist_id -> row(dict)
+    rows_by_artist = {}
+
+    for n in Ns:
+        data = call_artist_top_n(selected_user.id, n, region_id)
+        for r in data:
+            aid = r["artist_id"]
+            row = rows_by_artist.setdefault(
+                aid,
+                {
+                    "artist_id": aid,
+                    "artist_name": r["artist_name"],
+                    "region_id": r.get("region_id"),
+                },
+            )
+            row[f"rank_{n}"] = r["artist_rank"]
+            row[f"score_{n}"] = r["total_score"]  # ついでに合計点も使いたければ
+
+    # 並び順：20→15→10→5 の順位がある順に昇順
+    BIG = 10**9
+
+    def sort_key(row):
+        return (
+            row.get("rank_5", BIG),
+            row.get("rank_10", BIG),
+            row.get("rank_15", BIG),
+            row.get("rank_20", BIG),
+            row.get("artist_name", ""),
+        )
+
+    matrix_rows = sorted(rows_by_artist.values(), key=sort_key)
+
+    return render(
+        request,
+        "songs/artist_rank_matrix.html",
+        {
+            "regions": regions,
+            "all_users": users,
+            "region_id": region_id,
+            "selected_user": selected_user,
+            "rows": matrix_rows,
+        },
+    )
+
+
+@login_required
 def song_ranking_view(request):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")

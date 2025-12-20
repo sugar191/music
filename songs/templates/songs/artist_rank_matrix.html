@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+    <!-- ユーザー選択プルダウン -->
+    <div class="top-bar">
+        <form method="get" action="{% url 'artist_rank_matrix' %}">
+            <select name="user" id="user" onchange="this.form.submit()">
+            {% for user in all_users %}
+                <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
+                {{ user.username }}
+                </option>
+            {% endfor %}
+            </select>
+
+            <select name="region_id" id="region-select" onchange="this.form.submit()">
+            <option value="" {% if not region_id %}selected{% endif %}>全て</option>
+            {% for r in regions %}
+                <option value="{{ r.id }}" {% if r.id|stringformat:"s" == region_id %}selected{% endif %}>
+                {{ r.name }}
+                </option>
+            {% endfor %}
+            </select>
+        </form>
+    </div>
+
+    <div class="table-area">
+        <table>
+        <thead>
+            <tr>
+            <th>歌手</th>
+            <th style="text-align:right;">5</th>
+            <th style="text-align:right;">10</th>
+            <th style="text-align:right;">15</th>
+            <th style="text-align:right;">20</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td>{{ r.artist_name }}</td>
+                <td style="text-align:right;">{{ r.rank_5|default:"-" }}</td>
+                <td style="text-align:right;">{{ r.rank_10|default:"-" }}</td>
+                <td style="text-align:right;">{{ r.rank_15|default:"-" }}</td>
+                <td style="text-align:right;">{{ r.rank_20|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        </table>
+    </div>
+
+{% endblock %}

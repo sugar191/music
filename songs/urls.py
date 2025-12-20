@@ -3,6 +3,7 @@ from django.contrib.auth import views as auth_views
 from .views import (
     ranking_view,
     artist_list_view,
+    artist_rank_matrix_view,
     song_list_view,
     update_rating_view,
     update_cover_view,
@@ -18,6 +19,7 @@ from . import views_dump
 urlpatterns = [
     path("ranking/", ranking_view, name="ranking"),
     path("artists/", artist_list_view, name="artist_list"),
+    path("artist_rank_matrix/", artist_rank_matrix_view, name="artist_rank_matrix"),
     path("song_ranking/", song_ranking_view, name="song_ranking"),
     path("artists/<int:artist_id>/songs/", artist_song_list_view, name="artist_songs"),
     path("songs/", song_list_view, name="song_list"),

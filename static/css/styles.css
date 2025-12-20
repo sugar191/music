@@ -123,13 +123,16 @@ select option {
     position: fixed;
     top: 5dvh;
     left: 0;
-    overflow: hidden;               /* はみ出し防止 */
     width: 100vw;
-    min-height: 5vh;                /* フォールバック（古いブラウザ） */
+    min-height: 5vh;
     min-height: 5dvh;
     background-color: DarkBlue;
     color: white;
     z-index: 1000;
+
+    display: flex;          /* ★追加：中身を横並びに */
+    align-items: center;    /* ★追加：縦中央 */
+    overflow: hidden;       /* PCは今まで通り */
 }
 
 .menu-mobile {
@@ -142,7 +145,7 @@ select option {
     list-style: none;
     margin: 0;
     padding: 0;
-    min-height: 5vh;                /* フォールバック（古いブラウザ） */
+    min-height: 5vh;
     min-height: 5dvh;
 }
 
@@ -168,6 +171,27 @@ select option {
     color: white;
     cursor: pointer;
     margin-left: 2vw;
+}
+
+.menu-head {
+    display: flex;
+    align-items: center;
+    min-height: 5vh;
+    min-height: 5dvh;
+    flex: 0 0 auto;         /* ★追加 */
+}
+
+.menu-pinned {
+  display: flex;
+  gap: 2vw;
+  margin-left: 2vw;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.menu-pinned a {
+  color: white;
+  font-size: 1rem;
 }
 
 /* メイン内容 */
@@ -340,6 +364,52 @@ select option {
     }
     .mobile-cell {
         display: table-cell;
+    }
+    .navbar {
+        overflow: visible;     /* ★これが超重要：absoluteメニューをクリップしない */
+    }
+    /* ★スマホではヘッダ（≡＋固定2つ）を表示 */
+    .menu-head {
+        display: flex;
+    }
+
+    /* ★PC用の横並びメニューは、スマホでは閉じる（≡で開閉） */
+    .menu {
+        display: none;            /* ←ここでスマホだけ非表示 */
+        flex-direction: column;
+        align-items: center;
+
+        position: absolute;       /* ドロップダウン化 */
+        left: 0;
+        top: 100%;             /* ★5dvhより安全：menu-headの直下に出す */
+        width: 100%;
+        background-color: DarkBlue;
+        padding: 0.5rem 0;
+        z-index: 1000;
+    }
+
+    .menu.show {
+        display: flex;            /* ←トグル時だけ表示 */
+    }
+
+    .menu-toggle {
+        display: block;
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: white;
+        cursor: pointer;
+        margin-left: 2vw;
+    }
+
+    /* 固定2つがはみ出す場合の保険 */
+    .menu-pinned {
+        flex: 1;
+        min-width: 0;
+    }
+    .menu-pinned a {
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 }
 
