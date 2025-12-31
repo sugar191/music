@@ -746,6 +746,8 @@ def artist_search_view(request):
         qs = qs.filter(song_count__gte=n - 5, song_count__lt=n)
     elif filter_top == "0":
         qs = qs.filter(song_count__gt=F("rating_count"))
+    elif filter_top == "20~":
+        qs = qs.filter(song_count__gt=F("rating_count"), rating_count__gte=20)
 
     # ここから Python 側で ひらがな/カタカナ無視のフィルタ & ソート
     artists = list(qs)  # クエリを評価してリスト化（annotation はそのまま乗ってる）
