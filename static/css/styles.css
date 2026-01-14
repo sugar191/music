@@ -203,6 +203,7 @@ select option {
 
 .top-bar {
     position: fixed;
+    display: flex;
     top: 10vh;
     left: 0;
     width: 100%;
@@ -259,6 +260,12 @@ select option {
     margin-top: 5vh;
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+
+.input-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 0.5rem;
 }
 
@@ -352,6 +359,10 @@ select option {
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
+    }
+
+    .input-grid {
+        grid-template-columns: 1fr; /* 1列に */
     }
 
     table,

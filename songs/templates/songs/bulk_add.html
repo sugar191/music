@@ -13,61 +13,67 @@
       {% if done %}<p style="color:green">複数歌手の登録が完了しました。</p>{% endif %}
       <!-- ===== 単一歌手モード ===== -->
       <div id="single-section" {% if mode != 'single' %}style="display:none"{% endif %}>
-        <select name="region_id" id="region-select">
-          <option value="">-- 地域 --</option>
-          {% for r in regions %}
-            <option value="{{ r.id }}" {% if selected_region_id == r.id|stringformat:"s" %}selected{% endif %}>{{ r.name }}</option>
-          {% endfor %}
-        </select>
-        <select name="artist_id" id="artist-select">
-          <option value="">-- 歌手 --</option>
-          {% for artist in artists %}
-            <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}"
-              {% if selected_artist_id == artist.id|stringformat:"s" %}selected{% endif %}>{{ artist.name }}</option>
-          {% endfor %}
-        </select>
-        <input type="text" name="new_artist_name" id="artist-name-input" placeholder="新しい歌手名">
-
-        <div style="display:flex; gap:8px; align-items:center; margin:10px 0;">
-          <button type="button" id="single-add-row">＋ 行を追加</button>
-          <button type="button" id="single-add-5">＋5 行</button>
-          <button type="submit">登録</button>
-        </div>
-
-        <table>
-          <thead>
-            <tr><th>曲名</th><th>点数</th><th>カバー</th><th></th></tr>
-          </thead>
-          <tbody id="single-tbody">
-            {% for i in range_initial %}
-              <tr data-row="{{ i }}">
-                <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
-                <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数"></td>
-                <td><input type="checkbox" name="song_is_cover_{{ i }}"></td>
-                <td><button type="button" class="remove-row" data-row="{{ i }}">削除</button></td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% if existing_songs %}
-          <h3 style="margin-top:16px;">この歌手の登録済みの曲（{{ existing_songs|length }}件）</h3>
-          <table class="existing-song-list">
-            <thead>
-              <tr>
-                <th>曲名</th>
-                <th>カバー</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for s in existing_songs %}
-                <tr>
-                  <td>{{ s.title }}</td>
-                  <td>{% if s.is_cover %}カバー{% else %}-{% endif %}</td>
-                </tr>
+        <div class="input-grid">
+          <div>
+            <select name="region_id" id="region-select">
+              <option value="">-- 地域 --</option>
+              {% for r in regions %}
+                <option value="{{ r.id }}" {% if selected_region_id == r.id|stringformat:"s" %}selected{% endif %}>{{ r.name }}</option>
               {% endfor %}
-            </tbody>
-          </table>
-        {% endif %}
+            </select>
+            <select name="artist_id" id="artist-select">
+              <option value="">-- 歌手 --</option>
+              {% for artist in artists %}
+                <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}"
+                  {% if selected_artist_id == artist.id|stringformat:"s" %}selected{% endif %}>{{ artist.name }}</option>
+              {% endfor %}
+            </select>
+            <input type="text" name="new_artist_name" id="artist-name-input" placeholder="新しい歌手名">
+
+            <div style="display:flex; gap:8px; align-items:center; margin:10px 0;">
+              <button type="button" id="single-add-row">＋ 行を追加</button>
+              <button type="button" id="single-add-5">＋5 行</button>
+              <button type="submit">登録</button>
+            </div>
+
+            <table>
+              <thead>
+                <tr><th>曲名</th><th>点数</th><th>カバー</th><th></th></tr>
+              </thead>
+              <tbody id="single-tbody">
+                {% for i in range_initial %}
+                  <tr data-row="{{ i }}">
+                    <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
+                    <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数"></td>
+                    <td><input type="checkbox" name="song_is_cover_{{ i }}"></td>
+                    <td><button type="button" class="remove-row" data-row="{{ i }}">削除</button></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            {% if existing_songs %}
+              この歌手の登録済みの曲（{{ existing_songs|length }}件）
+              <table class="existing-song-list">
+                <thead>
+                  <tr>
+                    <th>曲名</th>
+                    <th>カバー</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for s in existing_songs %}
+                    <tr>
+                      <td>{{ s.title }}</td>
+                      <td>{% if s.is_cover %}カバー{% else %}-{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          </div>
+        </div>
       </div>
 
       <!-- ===== 複数歌手モード ===== -->

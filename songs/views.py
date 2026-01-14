@@ -315,15 +315,28 @@ def song_list_view(request):
 
 # 歌手の曲リスト
 @login_required
+# 歌手の曲リスト
+@login_required
 def artist_song_list_view(request, artist_id):
-    from .forms import InlineRatingForm  # 必要に応じて
+    from .forms import InlineRatingForm
 
     artist = get_object_or_404(Artist, pk=artist_id)
-    user = request.user
 
-    user_score_subquery = Rating.objects.filter(user=user, song=OuterRef("pk")).values(
-        "score"
-    )[:1]
+    # ★追加：ユーザー選択（未指定ならログインユーザー）
+    users = User.objects.all().order_by("username")
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+    is_own_page = selected_user == request.user
+
+    # ★変更：selected_user の点数を取る
+    user_score_subquery = Rating.objects.filter(
+        user=selected_user,
+        song=OuterRef("pk"),
+    ).values("score")[:1]
 
     songs = list(
         artist.songs.annotate(
@@ -333,10 +346,6 @@ def artist_song_list_view(request, artist_id):
         .order_by("is_cover", "-user_score", Lower("title"))
     )
 
-    # スコア降順 → タイトル昇順
-    # songs.sort(key=lambda s: (-(s.user_score or -1), s.title))
-
-    # 順位付け（スキップあり）
     ranked_songs = []
     prev_score = None
     current_rank = 0
@@ -347,20 +356,19 @@ def artist_song_list_view(request, artist_id):
     for song in songs:
         if song.user_score != prev_score:
             current_rank = next_rank
+
+        # ★変更：フォームも selected_user の Rating を参照
         try:
-            rating = Rating.objects.get(user=user, song=song)
+            rating = Rating.objects.get(user=selected_user, song=song)
         except Rating.DoesNotExist:
             rating = None
         form = InlineRatingForm(instance=rating, prefix=str(song.id))
         rating_forms[song.id] = form
 
         ranked_songs.append(
-            {
-                "song": song,
-                "rank": current_rank,
-                "user_score": song.user_score,
-            }
+            {"song": song, "rank": current_rank, "user_score": song.user_score}
         )
+
         prev_score = song.user_score
         next_rank += 1
 
@@ -371,6 +379,9 @@ def artist_song_list_view(request, artist_id):
             "artist": artist,
             "songs": ranked_songs,
             "rating_forms": rating_forms,
+            "all_users": users,  # ★追加
+            "selected_user": selected_user,  # ★追加
+            "is_own_page": is_own_page,  # ★追加
         },
     )
 
