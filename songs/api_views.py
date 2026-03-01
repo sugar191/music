@@ -1,8 +1,8 @@
 from django.db import IntegrityError, transaction
-from django.shortcuts import get_object_or_404
+from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 from django.utils.encoding import iri_to_uri
-from rest_framework import status, permissions
+from rest_framework import permissions
 from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -11,7 +11,6 @@ from .models import Artist, Song, Rating, ArtistSongView, Rating, MusicRegion
 from .api_serializers import (
     ArtistSerializer,
     SongSerializer,
-    RatingExportSerializer,
     ArtistSongRowSerializer,
     RatingRowSerializer,
 )
@@ -306,11 +305,39 @@ def create_song_with_artist(request):
 
     # Artist を name+region で取得 or 作成（正規化も保存）
     fmt_artist = normalize(artist_name)
-    artist, created_artist = Artist.objects.get_or_create(
-        name=artist_name,
-        region=region,
-        defaults={"format_name": fmt_artist},
+    # (name OR format_name) + region で既存探索
+    artist = (
+        Artist.objects.filter(region=region)
+        .filter(Q(name=artist_name) | Q(format_name=fmt_artist))
+        .first()
     )
+
+    if artist:
+        created_artist = False
+        # 既存に format_name が無い/違うなら補正しておく（任意だけどおすすめ）
+        # ただし、他の正規化規則変更の可能性があるなら「空のときだけ更新」でもOK
+        if not artist.format_name:
+            artist.format_name = fmt_artist
+            artist.save(update_fields=["format_name"])
+    else:
+        # なければ作成（nameは入力そのまま、format_nameは正規化）
+        try:
+            artist = Artist.objects.create(
+                name=artist_name,
+                format_name=fmt_artist,
+                region=region,
+            )
+            created_artist = True
+        except IntegrityError:
+            # 競合（並行リクエスト等）対策：もう一度取り直す
+            artist = (
+                Artist.objects.filter(region=region)
+                .filter(Q(name=artist_name) | Q(format_name=fmt_artist))
+                .first()
+            )
+            if not artist:
+                raise
+            created_artist = False
 
     # Song の重複チェック（title+artist）
     fmt_title = normalize(title)
