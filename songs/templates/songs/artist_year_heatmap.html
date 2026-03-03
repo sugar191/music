@@ -46,7 +46,7 @@
         {% for a in artists %}
             <tr>
             <th style="position:sticky; left:0; background:#fff; z-index:1; text-align:left;" class="one_line_cell">
-                {{ a.name }}
+                <a href="{% url 'artist_songs' a.id %}">{{ a.name }}</a>
             </th>
             {% for y in years %}
                 <td class="cell"
