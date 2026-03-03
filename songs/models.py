@@ -109,3 +109,34 @@ class ArtistSongView(models.Model):
 
     def __str__(self):
         return f"{self.artist_name} : {self.song_title}"
+
+
+class ArtistYearPreference(models.Model):
+    """
+    アーティスト × 年 の好き度 (0〜4)
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    artist = models.ForeignKey(
+        Artist, on_delete=models.CASCADE, related_name="year_prefs"
+    )
+    year = models.IntegerField()
+    score = models.IntegerField(default=0)  # 0〜4
+
+    class Meta:
+        unique_together = ("user", "artist", "year")
+        indexes = [
+            models.Index(fields=["user", "year"]),
+            models.Index(fields=["user", "artist", "year"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.artist_id} {self.year}={self.score}"
+
+
+class UserProfile(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    birth_year = models.IntegerField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.user.username} profile"

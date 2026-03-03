@@ -19,7 +19,7 @@
                         {% csrf_token %}
                         {% if user.is_superuser %}
                             <a href="{% url 'missing_audio_files' %}" title="管理者機能"><i class="fa-solid fa-list-check"></i></a>
-                            <a href="{% url 'admin:index' %}" title="管理画面"><i class="fa-solid fa-cogs"></i></a>
+                            <a href="{% url 'admin:index' %}" title="管理画面" target="_blank"><i class="fa-solid fa-cogs"></i></a>
                         {% endif %}
                         <button type="submit" title="ログアウト" class="logout-button"><i class="fa-solid fa-right-from-bracket"></i></button>
                     </form>
@@ -50,6 +50,7 @@
             <ul class="menu" id="menu">
                 <!-- 例: ここは従来の横並びメニューをそのまま入れる -->
                 <li><a href="/song_ranking/">全曲TOP</a></li>
+                <li><a href="/artist_year_heatmap/">年表</a></li>
                 <li><a href="/songs/bulk_add/">曲追加</a></li>
             </ul>
         </div>

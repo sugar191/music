@@ -13,6 +13,10 @@ from .views import (
     artist_song_list_view,
     song_ranking_view,
     artist_search_view,
+    artist_year_heatmap_view,
+    artist_year_heatmap_bulk_save,
+    artist_year_heatmap_range_set,
+    artist_year_heatmap_add_artist,
 )
 from . import views_dump
 
@@ -27,6 +31,26 @@ urlpatterns = [
     path("update-rating/", update_rating_view, name="update_rating"),
     path("update-cover/", update_cover_view, name="update_cover"),
     path("songs/bulk_add/", bulk_add_view, name="bulk_add_songs"),
+    path(
+        "artist_year_heatmap/",
+        artist_year_heatmap_view,
+        name="artist_year_heatmap",
+    ),
+    path(
+        "api/artist_year_heatmap/bulk_save/",
+        artist_year_heatmap_bulk_save,
+        name="artist_year_heatmap_bulk_save",
+    ),
+    path(
+        "api/artist_year_heatmap/range_set/",
+        artist_year_heatmap_range_set,
+        name="artist_year_heatmap_range_set",
+    ),
+    path(
+        "api/artist_year_heatmap/add_artist/",
+        artist_year_heatmap_add_artist,
+        name="artist_year_heatmap_add_artist",
+    ),
     path("missing-files/", missing_audio_files_view, name="missing_audio_files"),
     path(
         "login/",

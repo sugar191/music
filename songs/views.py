@@ -7,23 +7,29 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.db import IntegrityError
-from django.db.models import F, Q, OuterRef, Subquery, IntegerField, Count
-from django.db.models.functions import Lower, Substr
-from django.db.models import Value
-from django.db.models import CharField
+from django.db import IntegrityError, transaction
+from django.db.models import F, Q, OuterRef, Subquery, IntegerField, Count, Min
+from django.db.models.functions import Coalesce, Lower
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 from mutagen.easyid3 import EasyID3
-from .models import Artist, Song, Rating, MusicRegion, RankView
+from .models import (
+    Artist,
+    Song,
+    Rating,
+    MusicRegion,
+    RankView,
+    ArtistYearPreference,
+    UserProfile,
+)
 from .forms import InlineRatingForm
 from .services import (
     call_artist_song_top_n,
     call_artist_insufficient_songs,
     call_artist_top_n,
-    call_artist_insufficient,
 )
 
 MUSIC_DIR = r"C:\Users\pawab\Music"
@@ -785,3 +791,310 @@ def artist_search_view(request):
             "top": filter_top,
         },
     )
+
+
+@login_required
+def artist_year_heatmap_view(request):
+    users = User.objects.all().order_by("username")
+
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+
+    this_year = timezone.localdate().year
+
+    # このユーザーの最小year（何もなければ fallback）
+    agg = ArtistYearPreference.objects.filter(user=selected_user).aggregate(
+        min_year=Min("year")
+    )
+    user_min_year = agg["min_year"] or 2000
+
+    # GET指定があれば優先、無ければ「最小year～今年」
+    def _get_int(name, default):
+        v = request.GET.get(name)
+        if v is None or v == "":
+            return default
+        try:
+            return int(v)
+        except ValueError:
+            return default
+
+    year_from = _get_int("from", user_min_year)
+    year_to = _get_int("to", this_year)
+
+    if year_from > year_to:
+        year_from, year_to = year_to, year_from
+
+    years = list(range(year_from, year_to + 1))
+
+    birth_year = (
+        UserProfile.objects.filter(user=selected_user)
+        .values_list("birth_year", flat=True)
+        .first()
+    )
+
+    age_row = None
+    if birth_year:
+        age_row = [y - birth_year for y in years]
+
+    # 表示対象アーティスト：このユーザーに1件でもprefがあるartistだけ
+    # 並び順：そのartistの最小year昇順 → name
+    # そのアーティストの最小year（=最初の行）
+    first_year_sq = (
+        ArtistYearPreference.objects.filter(user=selected_user, artist=OuterRef("pk"))
+        .order_by("year")
+        .values("year")[:1]
+    )
+
+    # その最小yearのscore（=最初の行のscore）
+    first_year_score_sq = (
+        ArtistYearPreference.objects.filter(user=selected_user, artist=OuterRef("pk"))
+        .order_by("year")
+        .values("score")[:1]
+    )
+
+    artists = (
+        Artist.objects.filter(year_prefs__user=selected_user)
+        .annotate(
+            first_year=Subquery(first_year_sq, output_field=IntegerField()),
+            first_year_score=Coalesce(
+                Subquery(first_year_score_sq, output_field=IntegerField()), 0
+            ),
+        )
+        .order_by("first_year", "-first_year_score", "name")
+        .distinct()
+    )
+
+    artists = list(artists)
+
+    # 追加候補（プルダウン用）：全アーティスト（全地域込み）
+    all_artists_for_add = list(Artist.objects.all().order_by("name"))
+
+    prefs = ArtistYearPreference.objects.filter(
+        user=selected_user,
+        year__gte=year_from,
+        year__lte=year_to,
+        artist__in=artists,
+    ).values("artist_id", "year", "score")
+
+    pref_map = {f'{p["artist_id"]}:{p["year"]}': p["score"] for p in prefs}
+
+    return render(
+        request,
+        "songs/artist_year_heatmap.html",
+        {
+            "all_users": users,
+            "selected_user": selected_user,
+            "is_own_page": (selected_user == request.user),
+            "artists": artists,
+            "all_artists_for_add": all_artists_for_add,
+            "years": years,
+            "year_from": year_from,
+            "year_to": year_to,
+            "pref_map_json": json.dumps(pref_map, ensure_ascii=False),
+            "birth_year": birth_year,
+            "age_row": age_row,
+        },
+    )
+
+
+@require_POST
+@login_required
+@transaction.atomic
+def artist_year_heatmap_bulk_save(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"error": "JSONが不正です"}, status=400)
+
+    items = payload.get("items") or []
+    if not isinstance(items, list):
+        return JsonResponse({"error": "itemsが不正です"}, status=400)
+
+    user_id = payload.get("user_id")
+    if user_id:
+        if (not request.user.is_staff) and (int(user_id) != request.user.id):
+            return JsonResponse({"error": "権限がありません"}, status=403)
+        target_user = get_object_or_404(User, id=user_id)
+    else:
+        target_user = request.user
+
+    cleaned = []
+    for it in items:
+        try:
+            aid = int(it.get("artist_id"))
+            year = int(it.get("year"))
+            score = int(it.get("score"))
+        except Exception:
+            continue
+        if score < 0:
+            score = 0
+        if score > 4:
+            score = 4
+        cleaned.append((aid, year, score))
+
+    if not cleaned:
+        return JsonResponse({"success": True, "deleted": 0, "created": 0, "updated": 0})
+
+    artist_ids = list({a for a, _, _ in cleaned})
+    years = list({y for _, y, _ in cleaned})
+
+    existing = ArtistYearPreference.objects.filter(
+        user=target_user,
+        artist_id__in=artist_ids,
+        year__in=years,
+    )
+    existing_map = {(p.artist_id, p.year): p for p in existing}
+
+    to_update = []
+    to_create = []
+    to_delete_ids = []
+
+    for aid, year, score in cleaned:
+        key = (aid, year)
+        obj = existing_map.get(key)
+
+        if score == 0:
+            # 1以上→0 は削除 / 未登録→0 は何もしない
+            if obj:
+                to_delete_ids.append(obj.id)
+            continue
+
+        # score 1〜4 は upsert
+        if obj:
+            if obj.score != score:
+                obj.score = score
+                to_update.append(obj)
+        else:
+            to_create.append(
+                ArtistYearPreference(
+                    user=target_user, artist_id=aid, year=year, score=score
+                )
+            )
+
+    deleted = 0
+    if to_delete_ids:
+        deleted = ArtistYearPreference.objects.filter(id__in=to_delete_ids).delete()[0]
+
+    created = 0
+    if to_create:
+        ArtistYearPreference.objects.bulk_create(to_create, ignore_conflicts=True)
+        created = len(to_create)
+
+    updated = 0
+    if to_update:
+        ArtistYearPreference.objects.bulk_update(to_update, ["score"])
+        updated = len(to_update)
+
+    return JsonResponse(
+        {"success": True, "deleted": deleted, "created": created, "updated": updated}
+    )
+
+
+@require_POST
+@login_required
+@transaction.atomic
+def artist_year_heatmap_range_set(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"error": "JSONが不正です"}, status=400)
+
+    try:
+        artist_id = int(payload.get("artist_id"))
+        y_from = int(payload.get("from"))
+        y_to = int(payload.get("to"))
+        score = int(payload.get("score"))
+    except Exception:
+        return JsonResponse({"error": "パラメータが不正です"}, status=400)
+
+    if y_from > y_to:
+        y_from, y_to = y_to, y_from
+    if score < 0:
+        score = 0
+    if score > 4:
+        score = 4
+
+    user_id = payload.get("user_id")
+    if user_id:
+        if (not request.user.is_staff) and (int(user_id) != request.user.id):
+            return JsonResponse({"error": "権限がありません"}, status=403)
+        target_user = get_object_or_404(User, id=user_id)
+    else:
+        target_user = request.user
+
+    years = list(range(y_from, y_to + 1))
+
+    if score == 0:
+        # 範囲を削除（作成しない）
+        deleted = ArtistYearPreference.objects.filter(
+            user=target_user, artist_id=artist_id, year__in=years
+        ).delete()[0]
+        return JsonResponse(
+            {"success": True, "count": len(years), "deleted": deleted, "mode": "delete"}
+        )
+
+    # score 1〜4 は upsert
+    existing = ArtistYearPreference.objects.filter(
+        user=target_user, artist_id=artist_id, year__in=years
+    )
+    existing_by_year = {p.year: p for p in existing}
+
+    to_update = []
+    to_create = []
+
+    for y in years:
+        obj = existing_by_year.get(y)
+        if obj:
+            if obj.score != score:
+                obj.score = score
+                to_update.append(obj)
+        else:
+            to_create.append(
+                ArtistYearPreference(
+                    user=target_user, artist_id=artist_id, year=y, score=score
+                )
+            )
+
+    if to_create:
+        ArtistYearPreference.objects.bulk_create(to_create, ignore_conflicts=True)
+    if to_update:
+        ArtistYearPreference.objects.bulk_update(to_update, ["score"])
+
+    return JsonResponse({"success": True, "count": len(years), "mode": "upsert"})
+
+
+@require_POST
+@login_required
+@transaction.atomic
+def artist_year_heatmap_add_artist(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+        artist_id = int(payload.get("artist_id"))
+    except Exception:
+        return JsonResponse({"error": "パラメータが不正です"}, status=400)
+
+    user_id = payload.get("user_id")
+    if user_id:
+        if (not request.user.is_staff) and (int(user_id) != request.user.id):
+            return JsonResponse({"error": "権限がありません"}, status=403)
+        target_user = get_object_or_404(User, id=user_id)
+    else:
+        target_user = request.user
+
+    year = timezone.localdate().year
+
+    obj, created = ArtistYearPreference.objects.get_or_create(
+        user=target_user,
+        artist_id=artist_id,
+        year=year,
+        defaults={"score": 1},  # ★ ここを1に
+    )
+    if not created and obj.score == 0:
+        obj.score = 1
+        obj.save(update_fields=["score"])
+
+    return JsonResponse({"success": True, "year": year, "created": created})

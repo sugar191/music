@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}アーティスト年表{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <form method="get">
+        <select name="user">
+            {% for u in all_users %}
+                <option value="{{ u.id }}" {% if selected_user.id == u.id %}selected{% endif %}>{{ u.username }}</option>
+            {% endfor %}
+        </select>
+        <input type="number" name="from" value="{{ year_from }}" class="year-input">
+        ~
+        <input type="number" name="to" value="{{ year_to }}" class="year-input">
+        <button type="submit">表示</button>
+        <select id="bulk-artist">
+            {% for a in all_artists_for_add %}
+                <option value="{{ a.id }}">{{ a.name }}</option>
+            {% endfor %}
+        </select>
+        <button id="add-artist" type="button" {% if not is_own_page %}disabled{% endif %}>年表に追加</button>
+        <button type="button" class="palette" data-score="0" {% if not is_own_page %}disabled{% endif %}>0</button>
+        <button type="button" class="palette" data-score="1" {% if not is_own_page %}disabled{% endif %}>1</button>
+        <button type="button" class="palette" data-score="2" {% if not is_own_page %}disabled{% endif %}>2</button>
+        <button type="button" class="palette" data-score="3" {% if not is_own_page %}disabled{% endif %}>3</button>
+        <button type="button" class="palette" data-score="4" {% if not is_own_page %}disabled{% endif %}>4</button>
+        <button id="save" type="button" {% if not is_own_page %}disabled{% endif %}>変更を保存</button>
+        <span id="save-status" style="margin-left:8px;"></span>
+    </form>
+</div>
+
+<div class="table-area">
+    <div style="overflow:auto; border:1px solid #ddd;">
+    <table id="heatmap" style="border-collapse:collapse; width:max-content;">
+        <thead>
+        <tr>
+            <th style="position:sticky; left:0; z-index:3;">歌手</th>
+            {% for y in years %}
+                <th style="position:sticky; top:0; z-index:2;">'{{ y|stringformat:"d"|slice:"-2:" }}</th>
+            {% endfor %}
+        </tr>
+        </thead>
+        <tbody>
+        {% for a in artists %}
+            <tr>
+            <th style="position:sticky; left:0; background:#fff; z-index:1; text-align:left;" class="one_line_cell">
+                {{ a.name }}
+            </th>
+            {% for y in years %}
+                <td class="cell"
+                    data-artist="{{ a.id }}"
+                    data-year="{{ y }}"
+                    data-score="0"
+                    style="width:26px; height:26px; border:1px solid #eee; cursor:{% if is_own_page %}pointer{% else %}not-allowed{% endif %};">
+                </td>
+            {% endfor %}
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+        <tr>
+            <th style="position:sticky; left:0; z-index:1;">年齢</th>
+            {% for age in age_row %}
+                <td style="text-align:center; border:1px solid #eee;">{{ age }}</td>
+            {% endfor %}
+
+            {# birth_year未設定なら空欄で埋める #}
+            {% if not age_row %}
+                {% for y in years %}
+                    <td style="text-align:center; border:1px solid #eee;">-</td>
+                {% endfor %}
+            {% endif %}
+        </tr>
+        </tfoot>
+    </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+<script>
+  const IS_OWN_PAGE = {{ is_own_page|yesno:"true,false" }};
+  const PREF_MAP = JSON.parse('{{ pref_map_json|escapejs }}');
+
+  function getCookie(name) {
+    const v = document.cookie.split('; ').find(row => row.startsWith(name + '='));
+    return v ? decodeURIComponent(v.split('=')[1]) : null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  const SCORE_MAX = 4;
+
+  function scoreToAlpha(score){
+    if(score <= 0) return 0.0;
+    return 0.15 + (score / SCORE_MAX) * 0.70;
+  }
+
+  function paintCell(td, score){
+    td.dataset.score = String(score);
+    const a = scoreToAlpha(score);
+    td.style.backgroundColor = a === 0 ? '' : `rgba(0, 0, 0, ${a})`;
+    td.title = `score=${score}`;
+  }
+
+  // 初期塗り
+  document.querySelectorAll('#heatmap td.cell').forEach(td => {
+    const key = `${td.dataset.artist}:${td.dataset.year}`;
+    const sc = (key in PREF_MAP) ? parseInt(PREF_MAP[key], 10) : 0;
+    paintCell(td, sc);
+  });
+
+  // 変更記録
+  const dirty = new Map();
+  function markDirty(td){
+    const aid = td.dataset.artist;
+    const year = td.dataset.year;
+    const score = parseInt(td.dataset.score || '0', 10);
+    dirty.set(`${aid}:${year}`, {artist_id: parseInt(aid,10), year: parseInt(year,10), score});
+  }
+
+  // --- パレット ---
+  let selectedScore = 4; // 初期は4で塗れると気持ちいい
+
+  function refreshPaletteUI(){
+    document.querySelectorAll('button.palette').forEach(b => {
+      const s = parseInt(b.dataset.score, 10);
+      // 見た目（セルと同じ濃度）
+      const a = scoreToAlpha(s);
+      b.style.width = '34px';
+      b.style.height = '26px';
+      b.style.border = '1px solid #ccc';
+      b.style.cursor = 'pointer';
+      b.style.backgroundColor = a === 0 ? '#fff' : `rgba(0,0,0,${a})`;
+      b.style.color = s === 0 ? '#000' : '#fff';
+      b.style.outline = (s === selectedScore) ? '2px solid #1e90ff' : '';
+    });
+  }
+
+  document.querySelectorAll('button.palette').forEach(b => {
+    b.addEventListener('click', () => {
+      selectedScore = parseInt(b.dataset.score, 10);
+      refreshPaletteUI();
+    });
+  });
+  refreshPaletteUI();
+
+  // --- 塗り操作 ---
+  let isPaintingLeft = false;
+
+  function applySelected(td){
+    paintCell(td, selectedScore);
+    markDirty(td);
+  }
+
+  function dec(td){
+    const sc = parseInt(td.dataset.score || '0', 10);
+    const next = Math.max(0, sc - 1);
+    paintCell(td, next);
+    markDirty(td);
+  }
+
+  // 右クリックメニュー禁止（表の上だけ）
+  const heatmap = document.getElementById('heatmap');
+  heatmap.addEventListener('contextmenu', (e) => {
+    if(e.target && e.target.classList.contains('cell')){
+      e.preventDefault();
+    }
+  });
+
+    if (IS_OWN_PAGE) {
+        document.querySelectorAll('#heatmap td.cell').forEach(td => {
+
+        // 左ドラッグ開始
+        td.addEventListener('mousedown', (e) => {
+            if(e.button === 0){ // left
+            e.preventDefault();
+            isPaintingLeft = true;
+            applySelected(td);
+            }
+            if(e.button === 2){ // right
+            e.preventDefault();
+            dec(td);
+            }
+        });
+
+        td.addEventListener('mouseover', (e) => {
+            if(!isPaintingLeft) return;
+            applySelected(td);
+        });
+        // 右クリック単体（mouseup）でも減算したい場合はここでもOK（今はmousedownでやってる）
+        });
+    }
+
+  window.addEventListener('mouseup', () => {
+    isPaintingLeft = false;
+  });
+
+  // --- 保存 ---
+  document.getElementById('save').addEventListener('click', async () => {
+    const status = document.getElementById('save-status');
+    if(dirty.size === 0){
+      status.textContent = '変更なし';
+      return;
+    }
+
+    const items = Array.from(dirty.values());
+    const userId = {{ selected_user.id }};
+
+    status.textContent = '保存中…';
+
+    try{
+      const res = await fetch("{% url 'artist_year_heatmap_bulk_save' %}", {
+        method: 'POST',
+        headers: {
+          'Content-Type':'application/json',
+          'X-CSRFToken': csrftoken,
+        },
+        body: JSON.stringify({ items, user_id: userId }),
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || '保存失敗');
+      dirty.clear();
+      status.textContent = `保存OK (create=${data.created}, update=${data.updated})`;
+      location.reload();
+    }catch(err){
+      status.textContent = `保存失敗: ${err.message}`;
+    }
+  });
+
+
+  // --- 年表に追加ボタン ---
+  document.getElementById('add-artist').addEventListener('click', async () => {
+    const aid = parseInt(document.getElementById('bulk-artist').value, 10);
+    const userId = {{ selected_user.id }};
+    const status = document.getElementById('save-status');
+    status.textContent = '追加中…';
+
+    try{
+      const res = await fetch("{% url 'artist_year_heatmap_add_artist' %}", {
+        method: 'POST',
+        headers: {
+          'Content-Type':'application/json',
+          'X-CSRFToken': csrftoken,
+        },
+        body: JSON.stringify({ artist_id: aid, user_id: userId }),
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || '追加失敗');
+      status.textContent = `追加OK（${data.year}年に登録）→ リロードしてください`;
+      location.reload();
+    }catch(err){
+      status.textContent = `追加失敗: ${err.message}`;
+    }
+  });
+</script>
+{% endblock %}

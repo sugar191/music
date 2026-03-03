@@ -24,7 +24,7 @@ th, td {
     text-align: left;
 }
 
-thead {
+thead, tfoot {
     background-color: lightblue;
     font-weight: bold;
 }
@@ -331,6 +331,10 @@ select option {
 
 .score-input {
     width: 50px;
+}
+
+.year-input {
+    width: 90px;
 }
 
 .others-table-container {
