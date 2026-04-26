@@ -15,4 +15,9 @@ urlpatterns = [
         api_views.create_song_with_artist,
         name="create_song_with_artist",
     ),
+    path(
+        "songs/update_credits",
+        api_views.update_song_credits,
+        name="api_update_song_credits",
+    ),
 ]

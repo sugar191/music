@@ -245,6 +245,55 @@ def create_song_with_artist(request):
     )
 
 
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])  # 認証要件は他APIに合わせて調整可
+def update_song_credits(request):
+    """
+    POST /api/songs/update_credits
+    body: {
+      "song_id": 123,
+      "lyricist": "...",   # 任意。未指定/空なら NULL で上書き
+      "composer": "..."    # 任意。未指定/空なら NULL で上書き
+    }
+    成功時: 200
+      { "song_id": 123, "lyricist": "...", "composer": "..." }
+    曲が見つからない場合: 404
+    バリデーション: 400
+    """
+
+    data = request.data
+    song_id = data.get("song_id")
+    if song_id is None:
+        return Response({"detail": "song_id は必須です"}, status=400)
+
+    try:
+        song_id_int = int(song_id)
+    except (TypeError, ValueError):
+        return Response({"detail": "song_id が不正です"}, status=400)
+
+    # 未指定 or 空文字 → None（DB は NULL）
+    lyricist = (data.get("lyricist") or "").strip() or None
+    composer = (data.get("composer") or "").strip() or None
+
+    try:
+        song = Song.objects.only("id", "lyricist", "composer").get(id=song_id_int)
+    except Song.DoesNotExist:
+        return Response({"detail": "song not found"}, status=404)
+
+    song.lyricist = lyricist
+    song.composer = composer
+    song.save(update_fields=["lyricist", "composer"])
+
+    return Response(
+        {
+            "song_id": song.id,
+            "lyricist": song.lyricist,
+            "composer": song.composer,
+        },
+        status=200,
+    )
+
+
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def artist_list(request):

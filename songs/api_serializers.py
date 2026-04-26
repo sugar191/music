@@ -20,7 +20,16 @@ class SongSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Song
-        fields = ["id", "title", "format_title", "artist", "artist_name", "is_cover"]
+        fields = [
+            "id",
+            "title",
+            "format_title",
+            "artist",
+            "artist_name",
+            "is_cover",
+            "lyricist",
+            "composer",
+        ]
 
     def validate(self, attrs):
         title = attrs.get("title") or (self.instance and self.instance.title)
