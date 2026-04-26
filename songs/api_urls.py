@@ -2,35 +2,17 @@ from django.urls import path
 from . import api_views
 
 urlpatterns = [
-    path("ratings/score", api_views.get_score, name="get_score"),  # GET
-    path("ratings/score/update", api_views.update_score, name="update"),  # POST
-    path(
-        "ratings/export", api_views.export_ratings, name="export_ratings"
-    ),  # ★ 追加: GET
-    path(
-        "artists/regions", api_views.export_artist_regions, name="export_artist_regions"
-    ),
-    path(
-        "artist_song_view",
-        api_views.ArtistSongExport.as_view(),
-        name="artist-song-export",
-    ),
+    path("artists/", api_views.artist_list),
+    path("songs/", api_views.song_list),
     path(
         "songs_rating",
         api_views.SongsRatingExport.as_view(),
         name="songs-rating-export",
     ),
-    path("get_song", api_views.get_song, name="get_song"),
+    path("ratings/score/update", api_views.update_score, name="update"),  # POST
     path(
         "songs/create_with_artist",
         api_views.create_song_with_artist,
         name="create_song_with_artist",
-    ),
-    path("artists/", api_views.artist_list),
-    path("songs/", api_views.song_list),
-    path(
-        "songs/catalog",
-        api_views.song_catalog_for_android,
-        name="song-catalog-android",
     ),
 ]

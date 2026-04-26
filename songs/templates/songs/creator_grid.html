@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% load get_item %}
+{% load static %}
+{% block title %}{{ creator_label }}TOP{% endblock %}
+{% block content %}
+    <!-- ユーザー選択プルダウン -->
+    <div class="top-bar">
+        <select id="kind-select" onchange="switchTopKind(this)">
+            <option value="{% url 'artist_list' %}">歌手</option>
+            <option value="{% url 'lyricist_grid' %}" {% if creator_type == 'lyricist' %}selected{% endif %}>作詞</option>
+            <option value="{% url 'composer_grid' %}" {% if creator_type == 'composer' %}selected{% endif %}>作曲</option>
+        </select>
+        <form method="get">
+            <select name="user" id="user" onchange="this.form.submit()">
+                {% for user in all_users %}
+                    <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
+                        {{ user.username }}
+                    </option>
+                {% endfor %}
+            </select>
+            <select name="region_id" id="region-select" onchange="this.form.submit()">
+                <option value="" {% if not region_id %}selected{% endif %}>全て</option>
+                {% for r in regions %}
+                    <option value="{{ r.id }}" {% if r.id|stringformat:"s" == region_id %}selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+    <script>
+        function switchTopKind(sel) {
+            const params = new URLSearchParams(window.location.search);
+            const qs = params.toString();
+            window.location.href = sel.value + (qs ? "?" + qs : "");
+        }
+    </script>
+    <div class="artist-grid">
+        <div class="artist-card">
+            <div class="artist-card-header">TOP5</div>
+            <table>
+                <tbody>
+                    {% for c in top5 %}
+                        <tr>
+                            <td class="count-cell">{{ c.creator_rank }}</td>
+                            <td><div class="one_line_cell"><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ c.creator_name|urlencode }}">{{ c.creator_name }}</a></div></td>
+                            <td class="score-cell">{{ c.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="artist-card">
+            <div class="artist-card-header">TOP10</div>
+            <table>
+                <tbody>
+                    {% for c in top10 %}
+                        <tr>
+                            <td class="count-cell">{{ c.creator_rank }}</td>
+                            <td><div class="one_line_cell"><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ c.creator_name|urlencode }}">{{ c.creator_name }}</a></div></td>
+                            <td class="score-cell">{{ c.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="artist-card">
+            <div class="artist-card-header">TOP15</div>
+            <table>
+                <tbody>
+                    {% for c in top15 %}
+                        <tr>
+                            <td class="count-cell">{{ c.creator_rank }}</td>
+                            <td><div class="one_line_cell"><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ c.creator_name|urlencode }}">{{ c.creator_name }}</a></div></td>
+                            <td class="score-cell">{{ c.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="artist-card">
+            <div class="artist-card-header">TOP20</div>
+            <table>
+                <tbody>
+                    {% for c in top20 %}
+                        <tr>
+                            <td class="count-cell">{{ c.creator_rank }}</td>
+                            <td><div class="one_line_cell"><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ c.creator_name|urlencode }}">{{ c.creator_name }}</a></div></td>
+                            <td class="score-cell">{{ c.total_score|floatformat:0 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

@@ -5,6 +5,11 @@
 {% block content %}
     <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
+        <select id="kind-select" onchange="switchTopKind(this)">
+            <option value="{% url 'artist_list' %}" selected>歌手</option>
+            <option value="{% url 'lyricist_grid' %}">作詞</option>
+            <option value="{% url 'composer_grid' %}">作曲</option>
+        </select>
         <form method="get" action="{% url 'artist_list' %}">
             <select name="user" id="user" onchange="this.form.submit()">
                 {% for user in all_users %}
@@ -21,6 +26,13 @@
             </select>
         </form>
     </div>
+    <script>
+        function switchTopKind(sel) {
+            const params = new URLSearchParams(window.location.search);
+            const qs = params.toString();
+            window.location.href = sel.value + (qs ? "?" + qs : "");
+        }
+    </script>
     <div class="artist-grid">
         <div class="artist-card">
             <div class="artist-card-header">TOP5</div>
@@ -28,7 +40,7 @@
                 <tbody>
                     {% for artist_score in top5 %}
                         <tr>
-                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td class="count-cell">{{ artist_score.artist_rank }}</td>
                             <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
@@ -42,7 +54,7 @@
                 <tbody>
                     {% for artist_score in top10 %}
                         <tr>
-                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td class="count-cell">{{ artist_score.artist_rank }}</td>
                             <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
@@ -56,7 +68,7 @@
                 <tbody>
                     {% for artist_score in top15 %}
                         <tr>
-                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td class="count-cell">{{ artist_score.artist_rank }}</td>
                             <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>
@@ -70,7 +82,7 @@
                 <tbody>
                     {% for artist_score in top20 %}
                         <tr>
-                            <td class="count-cell">{{ artist_score.artist_rank }}位</td>
+                            <td class="count-cell">{{ artist_score.artist_rank }}</td>
                             <td><div class="one_line_cell"><a href="{% url 'artist_songs' artist_score.artist_id %}">{{ artist_score.artist_name }}</a></div></td>
                             <td class="score-cell">{{ artist_score.total_score|floatformat:0 }}</td>
                         </tr>

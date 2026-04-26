@@ -17,21 +17,32 @@
     <a href="{% url 'bulk_add_songs' %}?artist_id={{ artist.id }}">曲追加</a>
 </div>
 <div class="table-area">
-    <div>{{ artist.name }}の曲一覧</div>
+    <div class="bulk-credit-bar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+        <span>{{ artist.name }}の曲一覧</span>
+        <div class="pc-cell">
+            <input type="text" id="bulk-lyricist-input" list="lyricist-suggestions" placeholder="作詞（一括）">
+            <input type="text" id="bulk-composer-input" list="composer-suggestions" placeholder="作曲（一括）">
+            <button type="button" id="select-empty-credits-btn">未入力を一括選択</button>
+            <button type="button" id="bulk-apply-credits-btn">一括入力</button>
+        </div>
+    </div>
     <table>
         <thead>
             <tr>
                 <th class="count-cell">順位</th>
-                <th>タイトル</th>
+                <th>曲名</th>
                 <th>点数</th>
                 <th class="cover-cell">カバー</th>
+                <th class="pc-cell">作詞</th>
+                <th class="pc-cell">作曲</th>
+                <th class="pc-cell"><input type="checkbox" id="bulk-select-all"></th>
             </tr>
         </thead>
         <tbody>
             {% for entry in songs %}
             {% with song=entry.song %}
             <tr>
-                <td class="count-cell">{{ entry.rank }}位</td>
+                <td class="count-cell">{{ entry.rank }}</td>
                 <td>
                     <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
                 </td>
@@ -51,13 +62,40 @@
                 <td class="cover-cell">
                     <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>
                 </td>
+                <td class="credit-cell pc-cell" data-song-id="{{ song.id }}" data-field="lyricist">
+                    {% if song.lyricist %}
+                        <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a>
+                    {% else %}
+                        <input type="text" class="credit-input" data-song-id="{{ song.id }}" data-field="lyricist" list="lyricist-suggestions" value="" placeholder="作詞">
+                    {% endif %}
+                </td>
+                <td class="credit-cell pc-cell" data-song-id="{{ song.id }}" data-field="composer">
+                    {% if song.composer %}
+                        <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a>
+                    {% else %}
+                        <input type="text" class="credit-input" data-song-id="{{ song.id }}" data-field="composer" list="composer-suggestions" value="" placeholder="作曲">
+                    {% endif %}
+                </td>
+                <td class="pc-cell">
+                    <input type="checkbox" class="bulk-row-check" data-song-id="{{ song.id }}">
+                </td>
             </tr>
             {% endwith %}
             {% empty %}
-                <tr><td colspan="4">曲が見つかりませんでした。</td></tr>
+                <tr><td colspan="7">曲が見つかりませんでした。</td></tr>
             {% endfor %}
         </tbody>
     </table>
+    <datalist id="lyricist-suggestions">
+        {% for name in lyricist_suggestions %}
+            <option value="{{ name }}">
+        {% endfor %}
+    </datalist>
+    <datalist id="composer-suggestions">
+        {% for name in composer_suggestions %}
+            <option value="{{ name }}">
+        {% endfor %}
+    </datalist>
 </div>
 <p><a href="{{ request.META.HTTP_REFERER }}">← 戻る</a></p>
 {% endblock %}
@@ -68,6 +106,7 @@
     document.addEventListener("DOMContentLoaded", function () {
         const updateRatingUrl = "{% url 'update_rating' %}";
         const updateCoverUrl = "{% url 'update_cover' %}";
+        const updateCreditsUrl = "{% url 'update_song_credits' %}";
         const csrfToken = "{{ csrf_token }}";
 
         // 点数入力処理
@@ -100,6 +139,198 @@
             });
         });
 
+        // 作詞・作曲入力処理（change で保存）
+        document.querySelectorAll(".credit-input").forEach(input => {
+            input.addEventListener("change", function () {
+                const songId = this.dataset.songId;
+                const field = this.dataset.field;
+                const value = this.value;
+
+                showOverlay();
+
+                const body = `song_id=${encodeURIComponent(songId)}&field=${encodeURIComponent(field)}&value=${encodeURIComponent(value)}`;
+                fetch(updateCreditsUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "X-CSRFToken": csrfToken,
+                    },
+                    body: body,
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) alert(`保存エラー: ${data.error}`);
+                })
+                .catch(error => {
+                    alert("作詞/作曲の保存中にエラーが発生しました");
+                    console.error(error);
+                })
+                .finally(() => {
+                    hideOverlay();
+                });
+            });
+        });
+
+        // ===== 作詞作曲の一括入力 =====
+        const bulkLyricistInput = document.getElementById("bulk-lyricist-input");
+        const bulkComposerInput = document.getElementById("bulk-composer-input");
+        const selectEmptyBtn = document.getElementById("select-empty-credits-btn");
+        const bulkApplyBtn = document.getElementById("bulk-apply-credits-btn");
+        const selectAllCheckbox = document.getElementById("bulk-select-all");
+
+        // ヘッダの全選択チェックボックス
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener("change", function () {
+                const checked = this.checked;
+                document.querySelectorAll(".bulk-row-check").forEach(cb => {
+                    cb.checked = checked;
+                });
+            });
+        }
+
+        // 各行のチェックが変わったらヘッダ側の状態を同期
+        document.querySelectorAll(".bulk-row-check").forEach(cb => {
+            cb.addEventListener("change", function () {
+                if (!selectAllCheckbox) return;
+                const all = document.querySelectorAll(".bulk-row-check");
+                const checkedCount = document.querySelectorAll(".bulk-row-check:checked").length;
+                selectAllCheckbox.checked = (checkedCount === all.length && all.length > 0);
+                selectAllCheckbox.indeterminate = (checkedCount > 0 && checkedCount < all.length);
+            });
+        });
+
+        // 「未入力を一括選択」：作詞・作曲どちらも未入力の行をチェック
+        // ※入力済みのセルはリンク表示で input が存在しないので、input が存在する＝未入力
+        if (selectEmptyBtn) {
+            selectEmptyBtn.addEventListener("click", function () {
+                document.querySelectorAll(".bulk-row-check").forEach(cb => {
+                    const songId = cb.dataset.songId;
+                    const lyricist = document.querySelector(`.credit-input[data-song-id="${songId}"][data-field="lyricist"]`);
+                    const composer = document.querySelector(`.credit-input[data-song-id="${songId}"][data-field="composer"]`);
+                    // input が存在する場合のみ「未入力」と判定（未入力でも一時的に値が入っていれば対象外）
+                    const lyEmpty = !!lyricist && !lyricist.value.trim();
+                    const coEmpty = !!composer && !composer.value.trim();
+                    cb.checked = (lyEmpty && coEmpty);
+                });
+                // ヘッダ側状態を同期
+                if (selectAllCheckbox) {
+                    const all = document.querySelectorAll(".bulk-row-check");
+                    const checkedCount = document.querySelectorAll(".bulk-row-check:checked").length;
+                    selectAllCheckbox.checked = (checkedCount === all.length && all.length > 0);
+                    selectAllCheckbox.indeterminate = (checkedCount > 0 && checkedCount < all.length);
+                }
+            });
+        }
+
+        // 一括入力後にセルをリンク表示へ差し替えるためのヘルパ
+        const creatorSongsBaseUrl = "{% url 'creator_songs' %}";
+        function escapeHtml(s) {
+            return String(s)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+        function renderCreditCellAsLink(songId, field, value) {
+            const cell = document.querySelector(`.credit-cell[data-song-id="${songId}"][data-field="${field}"]`);
+            if (!cell) return;
+            const url = `${creatorSongsBaseUrl}?type=${encodeURIComponent(field)}&name=${encodeURIComponent(value)}`;
+            cell.innerHTML = `<a href="${url}">${escapeHtml(value)}</a>`;
+        }
+
+        // 「一括入力」：チェックされた行に作詞・作曲テキストを反映して保存
+        if (bulkApplyBtn) {
+            bulkApplyBtn.addEventListener("click", function () {
+                const lyValue = bulkLyricistInput ? bulkLyricistInput.value.trim() : "";
+                const coValue = bulkComposerInput ? bulkComposerInput.value.trim() : "";
+
+                if (!lyValue && !coValue) {
+                    alert("作詞または作曲のテキストを入力してください。");
+                    return;
+                }
+
+                const checkedRows = Array.from(document.querySelectorAll(".bulk-row-check:checked"));
+                if (checkedRows.length === 0) {
+                    alert("対象の行が選択されていません。");
+                    return;
+                }
+
+                showOverlay();
+
+                const requests = [];
+                const successUpdates = [];  // 保存成功後にリンク化するセル情報
+                checkedRows.forEach(cb => {
+                    const songId = cb.dataset.songId;
+
+                    if (lyValue) {
+                        const lyInput = document.querySelector(`.credit-input[data-song-id="${songId}"][data-field="lyricist"]`);
+                        if (lyInput) lyInput.value = lyValue;
+                        requests.push(
+                            fetch(updateCreditsUrl, {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "X-CSRFToken": csrfToken,
+                                },
+                                body: `song_id=${encodeURIComponent(songId)}&field=lyricist&value=${encodeURIComponent(lyValue)}`,
+                            }).then(r => r.json()).then(d => {
+                                if (d && d.success) {
+                                    successUpdates.push({ songId, field: "lyricist", value: lyValue });
+                                }
+                                return d;
+                            })
+                        );
+                    }
+
+                    if (coValue) {
+                        const coInput = document.querySelector(`.credit-input[data-song-id="${songId}"][data-field="composer"]`);
+                        if (coInput) coInput.value = coValue;
+                        requests.push(
+                            fetch(updateCreditsUrl, {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "X-CSRFToken": csrfToken,
+                                },
+                                body: `song_id=${encodeURIComponent(songId)}&field=composer&value=${encodeURIComponent(coValue)}`,
+                            }).then(r => r.json()).then(d => {
+                                if (d && d.success) {
+                                    successUpdates.push({ songId, field: "composer", value: coValue });
+                                }
+                                return d;
+                            })
+                        );
+                    }
+                });
+
+                Promise.all(requests)
+                    .then(results => {
+                        const failed = results.filter(d => !d || !d.success);
+                        if (failed.length > 0) {
+                            alert(`一括保存で ${failed.length} 件のエラーが発生しました。`);
+                        }
+                        // 保存成功したセルをリンク表示に差し替え
+                        successUpdates.forEach(u => renderCreditCellAsLink(u.songId, u.field, u.value));
+                        // テキストボックスを空に、全チェックを解除
+                        if (bulkLyricistInput) bulkLyricistInput.value = "";
+                        if (bulkComposerInput) bulkComposerInput.value = "";
+                        document.querySelectorAll(".bulk-row-check").forEach(cb => { cb.checked = false; });
+                        if (selectAllCheckbox) {
+                            selectAllCheckbox.checked = false;
+                            selectAllCheckbox.indeterminate = false;
+                        }
+                    })
+                    .catch(error => {
+                        alert("一括保存中にエラーが発生しました");
+                        console.error(error);
+                    })
+                    .finally(() => {
+                        hideOverlay();
+                    });
+            });
+        }
+
         // カバー曲チェック処理
         document.querySelectorAll(".cover-checkbox").forEach(checkbox => {
             checkbox.addEventListener("change", function () {
@@ -131,4 +362,4 @@
         });
     });
 </script>
-{% endblock %}
+{% endblock %}   

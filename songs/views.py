@@ -30,7 +30,14 @@ from .services import (
     call_artist_song_top_n,
     call_artist_insufficient_songs,
     call_artist_top_n,
+    call_creator_song_top_n,
+    call_creator_insufficient_songs,
 )
+
+CREATOR_TYPE_LABELS = {
+    "lyricist": "作詞",
+    "composer": "作曲",
+}
 
 MUSIC_DIR = r"C:\Users\pawab\Music"
 
@@ -155,6 +162,232 @@ def artist_list_view(request):
             #            "other_artists": other_artists,
         },
     )
+
+
+# 作詞別TOP / 作曲別TOP（creator_type = 'lyricist' or 'composer'）
+@login_required
+def creator_list_view(request, creator_type):
+    if creator_type not in CREATOR_TYPE_LABELS:
+        return redirect("artist_list")
+
+    ranking_options = [5, 10, 15, 20]
+    regions = MusicRegion.objects.all()
+    users = User.objects.all().order_by("username")
+
+    if "region_id" not in request.GET:
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
+
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+
+    try:
+        top_n = int(request.GET.get("top_n", 5))
+    except ValueError:
+        top_n = 5
+
+    top_n_data = call_creator_song_top_n(
+        selected_user.id, top_n, region_id, creator_type
+    )
+    insufficient_data = call_creator_insufficient_songs(
+        selected_user.id, top_n, region_id, creator_type
+    )
+
+    # クリエイターごとに曲をグルーピング
+    grouped = defaultdict(list)
+    for row in top_n_data:
+        key = (row["creator_rank"], row["creator"], row["total_score"])
+        grouped[key].append(row)
+
+    sorted_creators = sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1] or ""))
+
+    rankings = []
+    for key, songs in sorted_creators:
+        creator_rank, creator_name, total_score = key
+        rankings.append(
+            {
+                "creator_rank": creator_rank,
+                "creator_name": creator_name,
+                "total_score": total_score,
+                "songs": songs,
+            }
+        )
+
+    return render(
+        request,
+        "songs/creator_list.html",
+        {
+            "ranking_options": ranking_options,
+            "regions": regions,
+            "all_users": users,
+            "top_n": top_n,
+            "region_id": region_id,
+            "selected_user": selected_user,
+            "is_own_page": selected_user == request.user,
+            "creator_type": creator_type,
+            "creator_label": CREATOR_TYPE_LABELS[creator_type],
+            "rankings": rankings,
+            "insufficient_songs": insufficient_data,
+        },
+    )
+
+
+def _dedupe_creators(song_rows):
+    """call_creator_song_top_n の曲単位行を、クリエイター単位に重複排除する。"""
+    seen = {}
+    for row in song_rows:
+        creator = row["creator"]
+        if creator in seen:
+            continue
+        seen[creator] = {
+            "creator_name": creator,
+            "creator_rank": row["creator_rank"],
+            "total_score": row["total_score"],
+        }
+    return sorted(
+        seen.values(),
+        key=lambda r: (r["creator_rank"], r["creator_name"] or ""),
+    )
+
+
+# 作詞TOP / 作曲TOP（artist_list.html の作詞・作曲版：TOP5/10/15/20 グリッド）
+@login_required
+def creator_grid_view(request, creator_type):
+    if creator_type not in CREATOR_TYPE_LABELS:
+        return redirect("artist_list")
+
+    regions = MusicRegion.objects.all()
+    users = User.objects.all().order_by("username")
+
+    if "region_id" not in request.GET:
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
+
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+
+    top_lists = {}
+    for n in (5, 10, 15, 20):
+        rows = call_creator_song_top_n(selected_user.id, n, region_id, creator_type)
+        top_lists[f"top{n}"] = _dedupe_creators(rows)
+
+    return render(
+        request,
+        "songs/creator_grid.html",
+        {
+            "creator_type": creator_type,
+            "creator_label": CREATOR_TYPE_LABELS[creator_type],
+            "regions": regions,
+            "all_users": users,
+            "region_id": region_id,
+            "selected_user": selected_user,
+            "top5": top_lists["top5"],
+            "top10": top_lists["top10"],
+            "top15": top_lists["top15"],
+            "top20": top_lists["top20"],
+        },
+    )
+
+
+# 作詞ランク / 作曲ランク（artist_rank_matrix.html の作詞・作曲版）
+@login_required
+def creator_matrix_view(request, creator_type):
+    if creator_type not in CREATOR_TYPE_LABELS:
+        return redirect("artist_rank_matrix")
+
+    regions = MusicRegion.objects.all()
+    users = User.objects.all().order_by("username")
+
+    if "region_id" not in request.GET:
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
+
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+
+    Ns = [5, 10, 15, 20]
+    rows_by_creator = {}
+    for n in Ns:
+        data = call_creator_song_top_n(selected_user.id, n, region_id, creator_type)
+        # クリエイター単位に重複排除して rank/score を集約
+        for r in data:
+            creator = r["creator"]
+            row = rows_by_creator.setdefault(
+                creator, {"creator_name": creator}
+            )
+            # 同じクリエイターは同じ creator_rank なので、初回のみ書き込み
+            if f"rank_{n}" not in row:
+                row[f"rank_{n}"] = r["creator_rank"]
+                row[f"score_{n}"] = r["total_score"]
+
+    BIG = 10**9
+
+    def sort_key(row):
+        return (
+            row.get("rank_5", BIG),
+            row.get("rank_10", BIG),
+            row.get("rank_15", BIG),
+            row.get("rank_20", BIG),
+            row.get("creator_name", ""),
+        )
+
+    matrix_rows = sorted(rows_by_creator.values(), key=sort_key)
+
+    return render(
+        request,
+        "songs/creator_matrix.html",
+        {
+            "creator_type": creator_type,
+            "creator_label": CREATOR_TYPE_LABELS[creator_type],
+            "regions": regions,
+            "all_users": users,
+            "region_id": region_id,
+            "selected_user": selected_user,
+            "rows": matrix_rows,
+        },
+    )
+
+
+# 曲の作詞者・作曲者を更新するAJAXエンドポイント
+@require_POST
+@login_required
+def update_song_credits_view(request):
+    song_id = request.POST.get("song_id")
+    field = request.POST.get("field")  # 'lyricist' or 'composer'
+    value = request.POST.get("value", "").strip()
+
+    if field not in ("lyricist", "composer"):
+        return JsonResponse({"success": False, "error": "無効なフィールドです"}, status=400)
+
+    try:
+        song = Song.objects.get(pk=song_id)
+    except Song.DoesNotExist:
+        return JsonResponse({"success": False, "error": "曲が存在しません"}, status=404)
+
+    setattr(song, field, value or None)
+    song.save(update_fields=[field])
+    return JsonResponse({"success": True, "value": value})
 
 
 @login_required
@@ -378,6 +611,22 @@ def artist_song_list_view(request, artist_id):
         prev_score = song.user_score
         next_rank += 1
 
+    # ★追加：datalist 用の既存クリエイター候補（このアーティストで入力済みのもの）
+    lyricist_suggestions = sorted(
+        {
+            s.lyricist
+            for s in artist.songs.all()
+            if s.lyricist
+        }
+    )
+    composer_suggestions = sorted(
+        {
+            s.composer
+            for s in artist.songs.all()
+            if s.composer
+        }
+    )
+
     return render(
         request,
         "songs/artist_song_list.html",
@@ -388,6 +637,85 @@ def artist_song_list_view(request, artist_id):
             "all_users": users,  # ★追加
             "selected_user": selected_user,  # ★追加
             "is_own_page": is_own_page,  # ★追加
+            "lyricist_suggestions": lyricist_suggestions,
+            "composer_suggestions": composer_suggestions,
+        },
+    )
+
+
+# 作詞者・作曲者の曲一覧
+@login_required
+def creator_song_list_view(request):
+    creator_type = request.GET.get("type", "")
+    creator_name = request.GET.get("name", "").strip()
+
+    if creator_type not in CREATOR_TYPE_LABELS or not creator_name:
+        return redirect("lyricist_list")
+
+    creator_label = CREATOR_TYPE_LABELS[creator_type]
+
+    # ユーザー選択（未指定ならログインユーザー）
+    users = User.objects.all().order_by("username")
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+    is_own_page = selected_user == request.user
+
+    # selected_user の点数を取る
+    user_score_subquery = Rating.objects.filter(
+        user=selected_user,
+        song=OuterRef("pk"),
+    ).values("score")[:1]
+
+    songs = list(
+        Song.objects.filter(**{creator_type: creator_name})
+        .annotate(
+            user_score=Subquery(user_score_subquery, output_field=IntegerField())
+        )
+        .select_related("artist")
+        .order_by("is_cover", "-user_score", Lower("title"))
+    )
+
+    ranked_songs = []
+    prev_score = object()  # 最初は必ず一致しないようにセンチネル
+    current_rank = 0
+    next_rank = 1
+
+    rating_forms = {}
+
+    for song in songs:
+        if song.user_score != prev_score:
+            current_rank = next_rank
+
+        try:
+            rating = Rating.objects.get(user=selected_user, song=song)
+        except Rating.DoesNotExist:
+            rating = None
+        form = InlineRatingForm(instance=rating, prefix=str(song.id))
+        rating_forms[song.id] = form
+
+        ranked_songs.append(
+            {"song": song, "rank": current_rank, "user_score": song.user_score}
+        )
+
+        prev_score = song.user_score
+        next_rank += 1
+
+    return render(
+        request,
+        "songs/creator_song_list.html",
+        {
+            "creator_type": creator_type,
+            "creator_name": creator_name,
+            "creator_label": creator_label,
+            "songs": ranked_songs,
+            "rating_forms": rating_forms,
+            "all_users": users,
+            "selected_user": selected_user,
+            "is_own_page": is_own_page,
         },
     )
 
@@ -503,6 +831,20 @@ def bulk_add_view(request):
             existing_songs = []
             existing_titles_json = "[]"
 
+    # ★ datalist 用：作詞・作曲の既存候補（全曲から重複なしで集める）
+    lyricist_suggestions = sorted(
+        Song.objects.exclude(lyricist__isnull=True)
+        .exclude(lyricist__exact="")
+        .values_list("lyricist", flat=True)
+        .distinct()
+    )
+    composer_suggestions = sorted(
+        Song.objects.exclude(composer__isnull=True)
+        .exclude(composer__exact="")
+        .values_list("composer", flat=True)
+        .distinct()
+    )
+
     def render_form(error=None):
         ctx = {
             "selected_artist_id": str(selected_artist_id),
@@ -515,6 +857,8 @@ def bulk_add_view(request):
             "done": done,
             "existing_songs": existing_songs,
             "existing_titles_json": existing_titles_json,  # ★追加
+            "lyricist_suggestions": lyricist_suggestions,
+            "composer_suggestions": composer_suggestions,
         }
         if error:
             ctx["error"] = error
@@ -555,6 +899,8 @@ def bulk_add_view(request):
                 title = request.POST.get(f"song_title_{i}", "").strip()
                 score = request.POST.get(f"song_score_{i}", "").strip()
                 is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
+                lyricist = request.POST.get(f"song_lyricist_{i}", "").strip()
+                composer = request.POST.get(f"song_composer_{i}", "").strip()
                 if not title:
                     continue
 
@@ -562,12 +908,26 @@ def bulk_add_view(request):
                 if not song:
                     try:
                         song = Song.objects.create(
-                            title=title, artist=artist, is_cover=is_cover
+                            title=title,
+                            artist=artist,
+                            is_cover=is_cover,
+                            lyricist=lyricist or None,
+                            composer=composer or None,
                         )
                     except IntegrityError:
                         song = Song.objects.get(title=title, artist=artist)
+                        song.is_cover = is_cover
+                        if lyricist:
+                            song.lyricist = lyricist
+                        if composer:
+                            song.composer = composer
+                        song.save()
                 else:
                     song.is_cover = is_cover
+                    if lyricist:
+                        song.lyricist = lyricist
+                    if composer:
+                        song.composer = composer
                     song.save()
 
                 if score:
@@ -593,6 +953,8 @@ def bulk_add_view(request):
 
                 score_str = request.POST.get(f"song_score_{i}", "").strip()
                 is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
+                lyricist = request.POST.get(f"song_lyricist_{i}", "").strip()
+                composer = request.POST.get(f"song_composer_{i}", "").strip()
                 artist_id_i = request.POST.get(f"artist_id_{i}")
                 new_artist_name_i = request.POST.get(f"new_artist_name_{i}", "").strip()
                 region_id_i = request.POST.get(f"region_id_{i}")
@@ -622,12 +984,26 @@ def bulk_add_view(request):
                 if not song:
                     try:
                         song = Song.objects.create(
-                            title=title, artist=artist, is_cover=is_cover
+                            title=title,
+                            artist=artist,
+                            is_cover=is_cover,
+                            lyricist=lyricist or None,
+                            composer=composer or None,
                         )
                     except IntegrityError:
                         song = Song.objects.get(title=title, artist=artist)
+                        song.is_cover = is_cover
+                        if lyricist:
+                            song.lyricist = lyricist
+                        if composer:
+                            song.composer = composer
+                        song.save()
                 else:
                     song.is_cover = is_cover
+                    if lyricist:
+                        song.lyricist = lyricist
+                    if composer:
+                        song.composer = composer
                     song.save()
 
                 if score_str:

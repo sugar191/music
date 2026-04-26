@@ -40,12 +40,18 @@ class Song(models.Model):
         null=True,
         blank=True,
     )
+    lyricist = models.CharField(max_length=200, null=True, blank=True)
+    composer = models.CharField(max_length=200, null=True, blank=True)
 
     class Meta:
         unique_together = (
             "title",
             "artist",
         )  # ✅ アーティストと曲名の組み合わせを一意に
+        indexes = [
+            models.Index(fields=["lyricist"]),
+            models.Index(fields=["composer"]),
+        ]
 
     def __str__(self):
         return self.title

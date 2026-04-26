@@ -26,7 +26,7 @@
             <tbody>
                 {% for song in songs %}
                     <tr>
-                        <td class="count-cell">{{ song.display_rank }}位</td>
+                        <td class="count-cell">{{ song.display_rank }}</td>
                         <td class="pc-cell">
                             <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
                         </td>

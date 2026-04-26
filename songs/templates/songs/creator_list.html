@@ -1,16 +1,16 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load get_item %}
-{% block title %}歌手別TOP{% endblock %}
+{% block title %}{{ creator_label }}別TOP{% endblock %}
 {% block content %}
-<!-- ユーザー選択プルダウン -->
+<!-- ユーザー・TOP・地域選択 -->
     <div class="top-bar">
         <select id="kind-select" onchange="switchTopKind(this)">
-            <option value="{% url 'ranking' %}" selected>歌手</option>
-            <option value="{% url 'lyricist_list' %}">作詞</option>
-            <option value="{% url 'composer_list' %}">作曲</option>
+            <option value="{% url 'ranking' %}">歌手</option>
+            <option value="{% url 'lyricist_list' %}" {% if creator_type == 'lyricist' %}selected{% endif %}>作詞</option>
+            <option value="{% url 'composer_list' %}" {% if creator_type == 'composer' %}selected{% endif %}>作曲</option>
         </select>
-        <form method="get" action="{% url 'ranking' %}">
+        <form method="get">
             <select name="top_n" id="top_n" onchange="this.form.submit()">
                 {% for n in ranking_options %}
                     <option value="{{ n }}" {% if top_n == n %}selected{% endif %}>{{ n }}</option>
@@ -43,20 +43,42 @@
             <div class="artist-card">
                 <table>
                     <thead>
-                        <th class="count-cell">{{ row.artist_rank }}</th>
-                        <th><a href="{% url 'artist_songs' row.artist_id %}">{{ row.artist_name }}</a></th>
+                        <th class="count-cell">{{ row.creator_rank }}</th>
+                        <th class="pc-cell" colspan="2">
+                            <a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ row.creator_name|urlencode }}">{{ row.creator_name }}</a>
+                        </th>
+                        <th class="mobile-cell">
+                            <a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ row.creator_name|urlencode }}">{{ row.creator_name }}</a>
+                        </th>
                         <th class="score-cell">{{ row.total_score|floatformat:0 }}</th>
                     </thead>
                     <tbody>
                         {% for song in row.songs %}
                         <tr>
                             <td class="count-cell">
-                                {{ song.rank_artist }}
+                                {{ song.rank_creator }}
                             </td>
-                            <td>
-                                <a href="https://www.youtube.com/results?search_query={{ row.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                            <td class="pc-cell">
+                                <div>
+                                    <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">
                                         {{ song.song_title }}
-                                </a>
+                                    </a>
+                                </div>
+                            </td>
+                            <td class="pc-cell">
+                                <div>
+                                    <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
+                                </div>
+                            </td>
+                            <td class="mobile-cell">
+                                <div>
+                                    <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">
+                                        {{ song.song_title }}
+                                    </a>
+                                </div>
+                                <div>
+                                    <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
+                                </div>
                             </td>
                             <td class="score-cell">
                                 {% if is_own_page %}
@@ -82,12 +104,14 @@
                 <tr>
                     <td class="count-cell">{{ song.rank_within_insufficient }}</td>
                     <td class="pc-cell">
-                        <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
+                        <a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ song.creator|urlencode }}">{{ song.creator }}</a>
                     </td>
                     <td class="pc-cell">
                         <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
+                        / <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
                     </td>
                     <td class="mobile-cell">
+                        <div><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ song.creator|urlencode }}">{{ song.creator }}</a></div>
                         <div><a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a></div>
                         <div><a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a></div>
                     </td>

@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load get_item %}
+{% block title %}{{ creator_label }}：{{ creator_name }}の曲一覧{% endblock %}
+{% block content %}
+<!-- ユーザー選択プルダウン -->
+<div class="top-bar">
+    <form method="get">
+        <input type="hidden" name="type" value="{{ creator_type }}">
+        <input type="hidden" name="name" value="{{ creator_name }}">
+        <select name="user" id="user" onchange="this.form.submit()">
+            {% for user in all_users %}
+                <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
+                    {{ user.username }}
+                </option>
+            {% endfor %}
+        </select>
+    </form>
+</div>
+<div class="table-area">
+    <div>{{ creator_label }}：{{ creator_name }}の曲一覧</div>
+    <table>
+        <thead>
+            <tr>
+                <th class="count-cell">順位</th>
+                <th>曲名</th>
+                <th>点数</th>
+                <th class="cover-cell">カバー</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in songs %}
+            {% with song=entry.song %}
+            <tr>
+                <td class="count-cell">{{ entry.rank }}</td>
+                <td>
+                    <div>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
+                    </div>
+                    <div>
+                        <a href="{% url 'artist_songs' song.artist.id %}">{{ song.artist.name }}</a>
+                    </div>
+                </td>
+                <td class="score-cell">
+                    {% if is_own_page %}
+                        {% with form=rating_forms|get_item:song.id %}
+                            <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
+                        {% endwith %}
+                    {% else %}
+                        {% if entry.user_score is not None %}
+                            {{ entry.user_score }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    {% endif %}
+                </td>
+                <td class="cover-cell">
+                    <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>
+                </td>
+            </tr>
+            {% endwith %}
+            {% empty %}
+                <tr><td colspan="5">曲が見つかりませんでした。</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p><a href="{{ request.META.HTTP_REFERER }}">← 戻る</a></p>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const updateRatingUrl = "{% url 'update_rating' %}";
+        const updateCoverUrl = "{% url 'update_cover' %}";
+        const csrfToken = "{{ csrf_token }}";
+
+        // 点数入力処理
+        document.querySelectorAll(".score-input").forEach(input => {
+            input.addEventListener("change", function () {
+                const songId = this.dataset.songId;
+                const score = this.value;
+
+                showOverlay();
+
+                fetch(updateRatingUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "X-CSRFToken": csrfToken,
+                    },
+                    body: `song_id=${songId}&score=${score}`,
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) alert(`保存エラー: ${data.error}`);
+                })
+                .catch(error => {
+                    alert("点数保存中にエラーが発生しました");
+                    console.error(error);
+                })
+                .finally(() => {
+                    hideOverlay();
+                });
+            });
+        });
+
+        // カバー曲チェック処理
+        document.querySelectorAll(".cover-checkbox").forEach(checkbox => {
+            checkbox.addEventListener("change", function () {
+                const songId = this.dataset.songId;
+                const isCover = this.checked;
+
+                showOverlay();
+
+                fetch(updateCoverUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "X-CSRFToken": csrfToken,
+                    },
+                    body: `song_id=${songId}&is_cover=${isCover}`,
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) alert(`カバー保存エラー: ${data.error}`);
+                })
+                .catch(error => {
+                    alert("カバー情報保存中にエラーが発生しました");
+                    console.error(error);
+                })
+                .finally(() => {
+                    hideOverlay();
+                });
+            });
+        });
+    });
+</script>
+{% endblock %}

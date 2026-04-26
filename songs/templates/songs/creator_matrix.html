@@ -1,13 +1,14 @@
 {% extends "base.html" %}
+{% block title %}{{ creator_label }}ランク{% endblock %}
 {% block content %}
     <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
         <select id="kind-select" onchange="switchTopKind(this)">
-            <option value="{% url 'artist_rank_matrix' %}" selected>歌手</option>
-            <option value="{% url 'lyricist_matrix' %}">作詞</option>
-            <option value="{% url 'composer_matrix' %}">作曲</option>
+            <option value="{% url 'artist_rank_matrix' %}">歌手</option>
+            <option value="{% url 'lyricist_matrix' %}" {% if creator_type == 'lyricist' %}selected{% endif %}>作詞</option>
+            <option value="{% url 'composer_matrix' %}" {% if creator_type == 'composer' %}selected{% endif %}>作曲</option>
         </select>
-        <form method="get" action="{% url 'artist_rank_matrix' %}">
+        <form method="get">
             <select name="user" id="user" onchange="this.form.submit()">
             {% for user in all_users %}
                 <option value="{{ user.id }}" {% if user == selected_user %}selected{% endif %}>
@@ -38,7 +39,7 @@
         <table id="rank-matrix-table">
         <thead>
             <tr>
-            <th>歌手</th>
+            <th>{{ creator_label }}</th>
             <th style="text-align:right; cursor:pointer;" data-sort-n="5">5</th>
             <th style="text-align:right; cursor:pointer;" data-sort-n="10">10</th>
             <th style="text-align:right; cursor:pointer;" data-sort-n="15">15</th>
@@ -48,7 +49,7 @@
         <tbody>
             {% for r in rows %}
             <tr>
-                <td><a href="{% url 'artist_songs' r.artist_id %}">{{ r.artist_name }}</a></td>
+                <td><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ r.creator_name|urlencode }}">{{ r.creator_name }}</a></td>
                 <td style="text-align:right;">{{ r.rank_5|default:"-" }}</td>
                 <td style="text-align:right;">{{ r.rank_10|default:"-" }}</td>
                 <td style="text-align:right;">{{ r.rank_15|default:"-" }}</td>
@@ -66,7 +67,7 @@
         var tbody = table.tBodies[0];
         if (!tbody) return;
 
-        // 列インデックス: 0=歌手, 1=5, 2=10, 3=15, 4=20
+        // 列インデックス: 0=クリエイター, 1=5, 2=10, 3=15, 4=20
         var colIndexByN = { 5: 1, 10: 2, 15: 3, 20: 4 };
         // 各Nでのタイブレーカー順（クリックされたN値が「-」のときの並べ替え基準）
         var tieBreakersByN = {
@@ -85,7 +86,7 @@
             return isNaN(v) ? null : v;
         }
 
-        function artistName(row) {
+        function creatorName(row) {
             var td = row.cells[0];
             return td ? (td.textContent || '').trim() : '';
         }
@@ -105,10 +106,8 @@
                 if (!aNull && bNull) return -1;
 
                 if (!aNull && !bNull) {
-                    // どちらも値あり → クリックされた列で昇順
                     if (av !== bv) return av - bv;
                 } else {
-                    // 両方「-」 → タイブレーカーで比較
                     for (var i = 0; i < tbs.length; i++) {
                         var tn = tbs[i];
                         var at = parseCell(a, tn);
@@ -120,8 +119,7 @@
                         if (!atNull && !btNull && at !== bt) return at - bt;
                     }
                 }
-                // 最終タイブレーカー：歌手名（昇順）
-                return artistName(a).localeCompare(artistName(b), 'ja');
+                return creatorName(a).localeCompare(creatorName(b), 'ja');
             });
 
             var frag = document.createDocumentFragment();

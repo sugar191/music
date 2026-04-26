@@ -1,17 +1,15 @@
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
-from django.utils.encoding import iri_to_uri
 from rest_framework import permissions
 from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Artist, Song, Rating, ArtistSongView, Rating, MusicRegion
+from .models import Artist, Song, Rating, Rating, MusicRegion
 from .api_serializers import (
     ArtistSerializer,
     SongSerializer,
-    ArtistSongRowSerializer,
     RatingRowSerializer,
 )
 from .utils import normalize
@@ -29,32 +27,6 @@ def find_song_loose_readonly(artist_name: str, title: str):
     return qs.filter(
         artist__name__iexact=artist_name.strip(), title__iexact=title.strip()
     ).first()
-
-
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
-def get_score(request):
-    artist = request.query_params.get("artist")
-    title = request.query_params.get("title")
-    if not artist or not title:
-        return Response({"detail": "artist と title が必要です"}, status=400)
-
-    song = find_song_loose_readonly(artist, title)
-    if not song:
-        return Response({"detail": "song not found"}, status=404)
-
-    rating = Rating.objects.filter(user=request.user, song=song).first()
-    if not rating:
-        return Response({"detail": "rating not found"}, status=404)
-
-    return Response(
-        {
-            "artist": song.artist.name,
-            "title": song.title,
-            "score": rating.score,
-            "song_id": song.id,
-        }
-    )
 
 
 @api_view(["POST"])
@@ -104,104 +76,6 @@ def update_score(request):
     )
 
 
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
-def export_ratings(request):
-    # ★ ここを request.GET に（DRFでもDjangoでもOK）
-    params = request.GET
-    artist = params.get("artist")
-    want_download = params.get("download") in ("1", "true", "yes")
-
-    qs = (
-        Rating.objects.filter(user=request.user)
-        .select_related("song__artist")
-        .only("score", "song__title", "song__artist__name")
-        .order_by("song__artist__name", "song__title")
-    )
-    if artist:
-        qs = qs.filter(song__artist__name__iexact=artist.strip())
-
-    data = [
-        {"artist": r.song.artist.name, "title": r.song.title, "score": int(r.score)}
-        for r in qs
-    ]
-
-    resp = Response(data, status=200)
-    if want_download:
-        filename = f"ratings_{request.user.username}.json"
-        resp["Content-Disposition"] = f'attachment; filename="{iri_to_uri(filename)}"'
-    return resp
-
-
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
-def export_artist_regions(request):
-    """
-    全アーティストの地域コードをエクスポート。
-    ?download=1 で attachment
-    """
-    qs = Artist.objects.select_related("region").all().order_by("name")
-    data = []
-    for a in qs:
-        fmt = a.format_name or normalize(a.name)
-        data.append(
-            {
-                "name": a.name,
-                "format_name": fmt,
-                "region": (
-                    a.region.code if a.region else None
-                ),  # 例: "JP","EN","KR", None
-            }
-        )
-
-    resp = Response(data)
-    if request.query_params.get("download") in ("1", "true", "yes"):
-        resp["Content-Disposition"] = 'attachment; filename="artist_regions.json"'
-    return resp
-
-
-class ArtistSongExport(APIView):
-    """
-    GET /api/artist_song_view
-      オプション:
-        ?q=...          （artist/title の部分一致）
-        ?artist=...     （artist_name の部分一致）
-        ?title=...      （song_title の部分一致）
-        ?limit=1000     （安全のための上限。未指定=全件）
-    """
-
-    permission_classes = [permissions.AllowAny]  # 公開でOKならこのまま
-
-    def get(self, request):
-        qs = ArtistSongView.objects.all().order_by("song_id")
-
-        q = request.query_params.get("q")
-        if q:
-            qs = qs.filter(artist_name__icontains=q) | qs.filter(
-                song_title__icontains=q
-            )
-
-        artist = request.query_params.get("artist")
-        if artist:
-            qs = qs.filter(artist_name__icontains=artist)
-
-        title = request.query_params.get("title")
-        if title:
-            qs = qs.filter(song_title__icontains=title)
-
-        # 取り過ぎ防止の軽い上限
-        limit = request.query_params.get("limit")
-        if limit:
-            try:
-                limit = max(1, min(100000, int(limit)))
-                qs = qs[:limit]
-            except ValueError:
-                raise ValidationError({"limit": "must be integer"})
-
-        data = ArtistSongRowSerializer(qs, many=True).data
-        return Response(data)
-
-
 class SongsRatingExport(APIView):
     """
     GET /api/songs_rating
@@ -248,25 +122,6 @@ class SongsRatingExport(APIView):
         return Response(serializer.data)
 
 
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
-def get_song(request):
-    artist = request.query_params.get("artist")
-    title = request.query_params.get("title")
-    if not artist or not title:
-        return Response({"detail": "artist と title が必要です"}, status=400)
-
-    song = find_song_loose_readonly(artist, title)
-    if not song:
-        return Response({"detail": "song not found"}, status=404)
-
-    return Response(
-        {
-            "song_id": song.id,
-        }
-    )
-
-
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])  # 認証不要なら AllowAny に変えてOK
 @transaction.atomic
@@ -277,11 +132,13 @@ def create_song_with_artist(request):
       "artist_name": "浜田省吾",
       "title": "もうひとつの土曜日",
       "region_id": 1,
-      "is_cover": false
+      "is_cover": false,
+      "lyricist": "...",   # 任意。未指定/空なら NULL のまま登録
+      "composer": "..."    # 任意。未指定/空なら NULL のまま登録
     }
     成功時: 201
       { "artist_id": 123, "song_id": 456, "created_artist": true/false, "created_song": true }
-    既存曲がある場合: 409
+    既存曲がある場合: 409（lyricist/composer は更新しない）
       { "detail": "song already exists", "artist_id": 123, "song_id": 456 }
     バリデーション: 400
     """
@@ -291,6 +148,9 @@ def create_song_with_artist(request):
     title = (data.get("title") or "").strip()
     region_id = data.get("region_id")
     is_cover = bool(data.get("is_cover", False))
+    # 任意項目：未指定 or 空文字なら None（DB は NULL のまま）
+    lyricist = (data.get("lyricist") or "").strip() or None
+    composer = (data.get("composer") or "").strip() or None
 
     if not artist_name or not title or region_id is None:
         return Response(
@@ -352,13 +212,15 @@ def create_song_with_artist(request):
             status=409,
         )
 
-    # 作成
+    # 作成（新規登録のときだけ lyricist/composer を保存）
     try:
         song = Song.objects.create(
             title=title,
             format_title=fmt_title,
             artist=artist,
             is_cover=is_cover,
+            lyricist=lyricist,
+            composer=composer,
         )
     except IntegrityError:
         # UNIQUE(title, artist_id) に衝突した場合の保険
@@ -396,41 +258,4 @@ def artist_list(request):
 def song_list(request):
     qs = Song.objects.all().order_by("id").select_related("artist")
     data = SongSerializer(qs, many=True).data
-    return Response(data)
-
-
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
-def song_catalog_for_android(request):
-    """
-    GET /api/songs/catalog
-
-    Android 向けの簡易カタログ。
-    - Django Song.id
-    - 表示用の artist / title
-    - 正規化済み artist_norm / title_norm
-    - （あれば）duration_ms
-    """
-    qs = Song.objects.select_related("artist").order_by("id")
-
-    data = []
-    for s in qs:
-        artist_name = s.artist.name
-        title = s.title
-
-        artist_norm = getattr(s.artist, "format_name", None) or normalize(artist_name)
-        title_norm = getattr(s, "format_title", None) or normalize(title)
-
-        data.append(
-            {
-                "id": s.id,
-                "artist": artist_name,
-                "title": title,
-                "artist_norm": artist_norm,
-                "title_norm": title_norm,
-                # duration は持っていればでOK（なければ None）
-                "duration_ms": getattr(s, "duration_ms", None),
-            }
-        )
-
     return Response(data)

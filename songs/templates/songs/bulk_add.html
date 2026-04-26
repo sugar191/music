@@ -38,12 +38,14 @@
 
             <table>
               <thead>
-                <tr><th>曲名</th><th>点数</th><th>カバー</th><th></th></tr>
+                <tr><th>曲名</th><th>作詞</th><th>作曲</th><th>点数</th><th>カバー</th><th></th></tr>
               </thead>
               <tbody id="single-tbody">
                 {% for i in range_initial %}
                   <tr data-row="{{ i }}">
                     <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
+                    <td><input type="text" name="song_lyricist_{{ i }}" list="lyricist-suggestions" placeholder="作詞"></td>
+                    <td><input type="text" name="song_composer_{{ i }}" list="composer-suggestions" placeholder="作曲"></td>
                     <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数"></td>
                     <td><input type="checkbox" name="song_is_cover_{{ i }}"></td>
                     <td><button type="button" class="remove-row" data-row="{{ i }}">削除</button></td>
@@ -99,7 +101,7 @@
         <table>
           <thead>
             <tr>
-              <th>#</th><th>地域</th><th>既存歌手</th><th>新規歌手名</th><th>曲名</th><th>点数</th><th>カバー</th><th></th>
+              <th>#</th><th>地域</th><th>既存歌手</th><th>新規歌手名</th><th>曲名</th><th>作詞</th><th>作曲</th><th>点数</th><th>カバー</th><th></th>
             </tr>
           </thead>
           <tbody id="multi-tbody">
@@ -122,6 +124,8 @@
                 </td>
                 <td><input type="text" name="new_artist_name_{{ i }}" class="new-artist-input" data-row="{{ i }}" placeholder="新規の場合ここに入力"></td>
                 <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
+                <td><input type="text" name="song_lyricist_{{ i }}" list="lyricist-suggestions" placeholder="作詞"></td>
+                <td><input type="text" name="song_composer_{{ i }}" list="composer-suggestions" placeholder="作曲"></td>
                 <td><input type="number" name="song_score_{{ i }}" min="0" max="100" placeholder="点数"></td>
                 <td><input type="checkbox" name="song_is_cover_{{ i }}"></td>
                 <td><button type="button" class="remove-row" data-row="{{ i }}">削除</button></td>
@@ -130,6 +134,17 @@
           </tbody>
         </table>
       </div>
+
+      <datalist id="lyricist-suggestions">
+        {% for name in lyricist_suggestions %}
+          <option value="{{ name }}">
+        {% endfor %}
+      </datalist>
+      <datalist id="composer-suggestions">
+        {% for name in composer_suggestions %}
+          <option value="{{ name }}">
+        {% endfor %}
+      </datalist>
     </div>
     <div style="margin-top:10px"><button type="submit">登録</button></div>
   </form>
@@ -245,6 +260,8 @@ document.addEventListener("DOMContentLoaded", function () {
   singleTpl.innerHTML = `
     <tr data-row="__i__">
       <td><input type="text" name="song_title___i__" placeholder="曲名"></td>
+      <td><input type="text" name="song_lyricist___i__" list="lyricist-suggestions" placeholder="作詞"></td>
+      <td><input type="text" name="song_composer___i__" list="composer-suggestions" placeholder="作曲"></td>
       <td><input type="number" name="song_score___i__" min="0" max="100" placeholder="点数"></td>
       <td><input type="checkbox" name="song_is_cover___i__"></td>
       <td><button type="button" class="remove-row" data-row="__i__">削除</button></td>
@@ -259,6 +276,8 @@ document.addEventListener("DOMContentLoaded", function () {
       <td><select name="artist_id___i__" class="artist-select" data-row="__i__"></select></td>
       <td><input type="text" name="new_artist_name___i__" class="new-artist-input" data-row="__i__" placeholder="新規の場合ここに入力"></td>
       <td><input type="text" name="song_title___i__" placeholder="曲名"></td>
+      <td><input type="text" name="song_lyricist___i__" list="lyricist-suggestions" placeholder="作詞"></td>
+      <td><input type="text" name="song_composer___i__" list="composer-suggestions" placeholder="作曲"></td>
       <td><input type="number" name="song_score___i__" min="0" max="100" placeholder="点数"></td>
       <td><input type="checkbox" name="song_is_cover___i__"></td>
       <td><button type="button" class="remove-row" data-row="__i__">削除</button></td>
