@@ -23,6 +23,7 @@
         <thead>
             <tr>
                 <th class="count-cell">順位</th>
+                <th class="pc-cell">歌手</th>
                 <th>曲名</th>
                 <th>点数</th>
                 <th class="cover-cell">カバー</th>
@@ -33,7 +34,17 @@
             {% with song=entry.song %}
             <tr>
                 <td class="count-cell">{{ entry.rank }}</td>
-                <td>
+                <td class="pc-cell">
+                    <div>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
+                    </div>
+                </td>
+                <td class="pc-cell">
+                    <div>
+                        <a href="{% url 'artist_songs' song.artist.id %}">{{ song.artist.name }}</a>
+                    </div>
+                </td>
+                <td class="mobile-cell">
                     <div>
                         <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
                     </div>

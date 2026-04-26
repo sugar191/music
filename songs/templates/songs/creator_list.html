@@ -44,10 +44,7 @@
                 <table>
                     <thead>
                         <th class="count-cell">{{ row.creator_rank }}</th>
-                        <th class="pc-cell" colspan="2">
-                            <a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ row.creator_name|urlencode }}">{{ row.creator_name }}</a>
-                        </th>
-                        <th class="mobile-cell">
+                        <th>
                             <a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ row.creator_name|urlencode }}">{{ row.creator_name }}</a>
                         </th>
                         <th class="score-cell">{{ row.total_score|floatformat:0 }}</th>
@@ -58,19 +55,7 @@
                             <td class="count-cell">
                                 {{ song.rank_creator }}
                             </td>
-                            <td class="pc-cell">
-                                <div>
-                                    <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">
-                                        {{ song.song_title }}
-                                    </a>
-                                </div>
-                            </td>
-                            <td class="pc-cell">
-                                <div>
-                                    <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
-                                </div>
-                            </td>
-                            <td class="mobile-cell">
+                            <td>
                                 <div>
                                     <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">
                                         {{ song.song_title }}
@@ -108,7 +93,9 @@
                     </td>
                     <td class="pc-cell">
                         <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
-                        / <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
+                    </td>
+                    <td class="pc-cell">
+                        <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
                     </td>
                     <td class="mobile-cell">
                         <div><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ song.creator|urlencode }}">{{ song.creator }}</a></div>
