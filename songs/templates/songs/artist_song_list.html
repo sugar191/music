@@ -22,6 +22,7 @@
         <div class="pc-cell">
             <input type="text" id="bulk-lyricist-input" list="lyricist-suggestions" placeholder="作詞（一括）">
             <input type="text" id="bulk-composer-input" list="composer-suggestions" placeholder="作曲（一括）">
+            <input type="number" id="bulk-year-input" list="year-suggestions" placeholder="年（一括）">
             <button type="button" id="select-empty-credits-btn">未入力を一括選択</button>
             <button type="button" id="bulk-apply-credits-btn">一括入力</button>
         </div>
@@ -35,6 +36,7 @@
                 <th class="cover-cell">カバー</th>
                 <th class="pc-cell">作詞</th>
                 <th class="pc-cell">作曲</th>
+                <th class="pc-cell">年</th>
                 <th class="pc-cell"><input type="checkbox" id="bulk-select-all"></th>
             </tr>
         </thead>
@@ -76,13 +78,20 @@
                         <input type="text" class="credit-input" data-song-id="{{ song.id }}" data-field="composer" list="composer-suggestions" value="" placeholder="作曲">
                     {% endif %}
                 </td>
+                <td class="credit-cell pc-cell" data-song-id="{{ song.id }}" data-field="year">
+                    {% if song.year %}
+                        <a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year }}</a>
+                    {% else %}
+                        <input type="number" class="credit-input" data-song-id="{{ song.id }}" data-field="year" list="year-suggestions" value="" placeholder="年">
+                    {% endif %}
+                </td>
                 <td class="pc-cell">
                     <input type="checkbox" class="bulk-row-check" data-song-id="{{ song.id }}">
                 </td>
             </tr>
             {% endwith %}
             {% empty %}
-                <tr><td colspan="7">曲が見つかりませんでした。</td></tr>
+                <tr><td colspan="8">曲が見つかりませんでした。</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -94,6 +103,11 @@
     <datalist id="composer-suggestions">
         {% for name in composer_suggestions %}
             <option value="{{ name }}">
+        {% endfor %}
+    </datalist>
+    <datalist id="year-suggestions">
+        {% for y in year_suggestions %}
+            <option value="{{ y }}">
         {% endfor %}
     </datalist>
 </div>
@@ -171,9 +185,10 @@
             });
         });
 
-        // ===== 作詞作曲の一括入力 =====
+        // ===== 作詞作曲・年 の一括入力 =====
         const bulkLyricistInput = document.getElementById("bulk-lyricist-input");
         const bulkComposerInput = document.getElementById("bulk-composer-input");
+        const bulkYearInput = document.getElementById("bulk-year-input");
         const selectEmptyBtn = document.getElementById("select-empty-credits-btn");
         const bulkApplyBtn = document.getElementById("bulk-apply-credits-btn");
         const selectAllCheckbox = document.getElementById("bulk-select-all");
@@ -239,14 +254,15 @@
             cell.innerHTML = `<a href="${url}">${escapeHtml(value)}</a>`;
         }
 
-        // 「一括入力」：チェックされた行に作詞・作曲テキストを反映して保存
+        // 「一括入力」：チェックされた行に作詞・作曲・年を反映して保存
         if (bulkApplyBtn) {
             bulkApplyBtn.addEventListener("click", function () {
                 const lyValue = bulkLyricistInput ? bulkLyricistInput.value.trim() : "";
                 const coValue = bulkComposerInput ? bulkComposerInput.value.trim() : "";
+                const yrValue = bulkYearInput ? bulkYearInput.value.trim() : "";
 
-                if (!lyValue && !coValue) {
-                    alert("作詞または作曲のテキストを入力してください。");
+                if (!lyValue && !coValue && !yrValue) {
+                    alert("作詞・作曲・年のいずれかを入力してください。");
                     return;
                 }
 
@@ -302,6 +318,26 @@
                             })
                         );
                     }
+
+                    if (yrValue) {
+                        const yrInput = document.querySelector(`.credit-input[data-song-id="${songId}"][data-field="year"]`);
+                        if (yrInput) yrInput.value = yrValue;
+                        requests.push(
+                            fetch(updateCreditsUrl, {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "X-CSRFToken": csrfToken,
+                                },
+                                body: `song_id=${encodeURIComponent(songId)}&field=year&value=${encodeURIComponent(yrValue)}`,
+                            }).then(r => r.json()).then(d => {
+                                if (d && d.success) {
+                                    successUpdates.push({ songId, field: "year", value: yrValue });
+                                }
+                                return d;
+                            })
+                        );
+                    }
                 });
 
                 Promise.all(requests)
@@ -315,6 +351,7 @@
                         // テキストボックスを空に、全チェックを解除
                         if (bulkLyricistInput) bulkLyricistInput.value = "";
                         if (bulkComposerInput) bulkComposerInput.value = "";
+                        if (bulkYearInput) bulkYearInput.value = "";
                         document.querySelectorAll(".bulk-row-check").forEach(cb => { cb.checked = false; });
                         if (selectAllCheckbox) {
                             selectAllCheckbox.checked = false;

@@ -9,6 +9,7 @@
             <option value="{% url 'artist_list' %}" selected>歌手</option>
             <option value="{% url 'lyricist_grid' %}">作詞</option>
             <option value="{% url 'composer_grid' %}">作曲</option>
+            <option value="{% url 'year_grid' %}">年</option>
         </select>
         <form method="get" action="{% url 'artist_list' %}">
             <select name="user" id="user" onchange="this.form.submit()">

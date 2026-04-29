@@ -9,6 +9,7 @@
             <option value="{% url 'ranking' %}">歌手</option>
             <option value="{% url 'lyricist_list' %}" {% if creator_type == 'lyricist' %}selected{% endif %}>作詞</option>
             <option value="{% url 'composer_list' %}" {% if creator_type == 'composer' %}selected{% endif %}>作曲</option>
+            <option value="{% url 'year_list' %}" {% if creator_type == 'year' %}selected{% endif %}>年</option>
         </select>
         <form method="get">
             <select name="top_n" id="top_n" onchange="this.form.submit()">

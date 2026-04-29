@@ -134,11 +134,12 @@ def create_song_with_artist(request):
       "region_id": 1,
       "is_cover": false,
       "lyricist": "...",   # 任意。未指定/空なら NULL のまま登録
-      "composer": "..."    # 任意。未指定/空なら NULL のまま登録
+      "composer": "...",   # 任意。未指定/空なら NULL のまま登録
+      "year": 1985         # 任意。未指定/空/不正値なら NULL のまま登録
     }
     成功時: 201
       { "artist_id": 123, "song_id": 456, "created_artist": true/false, "created_song": true }
-    既存曲がある場合: 409（lyricist/composer は更新しない）
+    既存曲がある場合: 409（lyricist/composer/year は更新しない）
       { "detail": "song already exists", "artist_id": 123, "song_id": 456 }
     バリデーション: 400
     """
@@ -151,6 +152,15 @@ def create_song_with_artist(request):
     # 任意項目：未指定 or 空文字なら None（DB は NULL のまま）
     lyricist = (data.get("lyricist") or "").strip() or None
     composer = (data.get("composer") or "").strip() or None
+    # year は数値。未指定/空/数値変換失敗なら None
+    raw_year = data.get("year")
+    if raw_year in (None, ""):
+        year = None
+    else:
+        try:
+            year = int(raw_year)
+        except (TypeError, ValueError):
+            year = None
 
     if not artist_name or not title or region_id is None:
         return Response(
@@ -212,7 +222,7 @@ def create_song_with_artist(request):
             status=409,
         )
 
-    # 作成（新規登録のときだけ lyricist/composer を保存）
+    # 作成（新規登録のときだけ lyricist/composer/year を保存）
     try:
         song = Song.objects.create(
             title=title,
@@ -221,6 +231,7 @@ def create_song_with_artist(request):
             is_cover=is_cover,
             lyricist=lyricist,
             composer=composer,
+            year=year,
         )
     except IntegrityError:
         # UNIQUE(title, artist_id) に衝突した場合の保険
@@ -253,10 +264,11 @@ def update_song_credits(request):
     body: {
       "song_id": 123,
       "lyricist": "...",   # 任意。未指定/空なら NULL で上書き
-      "composer": "..."    # 任意。未指定/空なら NULL で上書き
+      "composer": "...",   # 任意。未指定/空なら NULL で上書き
+      "year": 1985         # 任意。未指定/空/不正値なら NULL で上書き
     }
     成功時: 200
-      { "song_id": 123, "lyricist": "...", "composer": "..." }
+      { "song_id": 123, "lyricist": "...", "composer": "...", "year": 1985 }
     曲が見つからない場合: 404
     バリデーション: 400
     """
@@ -275,20 +287,32 @@ def update_song_credits(request):
     lyricist = (data.get("lyricist") or "").strip() or None
     composer = (data.get("composer") or "").strip() or None
 
+    # year は数値。未指定/空/数値変換失敗なら None
+    raw_year = data.get("year")
+    if raw_year in (None, ""):
+        year = None
+    else:
+        try:
+            year = int(raw_year)
+        except (TypeError, ValueError):
+            year = None
+
     try:
-        song = Song.objects.only("id", "lyricist", "composer").get(id=song_id_int)
+        song = Song.objects.only("id", "lyricist", "composer", "year").get(id=song_id_int)
     except Song.DoesNotExist:
         return Response({"detail": "song not found"}, status=404)
 
     song.lyricist = lyricist
     song.composer = composer
-    song.save(update_fields=["lyricist", "composer"])
+    song.year = year
+    song.save(update_fields=["lyricist", "composer", "year"])
 
     return Response(
         {
             "song_id": song.id,
             "lyricist": song.lyricist,
             "composer": song.composer,
+            "year": song.year,
         },
         status=200,
     )

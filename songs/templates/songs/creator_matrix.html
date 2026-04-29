@@ -7,6 +7,7 @@
             <option value="{% url 'artist_rank_matrix' %}">歌手</option>
             <option value="{% url 'lyricist_matrix' %}" {% if creator_type == 'lyricist' %}selected{% endif %}>作詞</option>
             <option value="{% url 'composer_matrix' %}" {% if creator_type == 'composer' %}selected{% endif %}>作曲</option>
+            <option value="{% url 'year_matrix' %}" {% if creator_type == 'year' %}selected{% endif %}>年</option>
         </select>
         <form method="get">
             <select name="user" id="user" onchange="this.form.submit()">

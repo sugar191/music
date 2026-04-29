@@ -37,6 +37,7 @@ from .services import (
 CREATOR_TYPE_LABELS = {
     "lyricist": "作詞",
     "composer": "作曲",
+    "year": "年",
 }
 
 MUSIC_DIR = r"C:\Users\pawab\Music"
@@ -369,15 +370,15 @@ def creator_matrix_view(request, creator_type):
     )
 
 
-# 曲の作詞者・作曲者を更新するAJAXエンドポイント
+# 曲の作詞者・作曲者・年を更新するAJAXエンドポイント
 @require_POST
 @login_required
 def update_song_credits_view(request):
     song_id = request.POST.get("song_id")
-    field = request.POST.get("field")  # 'lyricist' or 'composer'
+    field = request.POST.get("field")  # 'lyricist' / 'composer' / 'year'
     value = request.POST.get("value", "").strip()
 
-    if field not in ("lyricist", "composer"):
+    if field not in ("lyricist", "composer", "year"):
         return JsonResponse({"success": False, "error": "無効なフィールドです"}, status=400)
 
     try:
@@ -385,9 +386,22 @@ def update_song_credits_view(request):
     except Song.DoesNotExist:
         return JsonResponse({"success": False, "error": "曲が存在しません"}, status=404)
 
-    setattr(song, field, value or None)
+    if field == "year":
+        if value:
+            try:
+                value_to_save = int(value)
+            except ValueError:
+                return JsonResponse(
+                    {"success": False, "error": "年は数値で入力してください"}, status=400
+                )
+        else:
+            value_to_save = None
+    else:
+        value_to_save = value or None
+
+    setattr(song, field, value_to_save)
     song.save(update_fields=[field])
-    return JsonResponse({"success": True, "value": value})
+    return JsonResponse({"success": True, "value": value_to_save})
 
 
 @login_required
@@ -626,6 +640,13 @@ def artist_song_list_view(request, artist_id):
             if s.composer
         }
     )
+    year_suggestions = sorted(
+        {
+            s.year
+            for s in artist.songs.all()
+            if s.year
+        }
+    )
 
     return render(
         request,
@@ -639,11 +660,12 @@ def artist_song_list_view(request, artist_id):
             "is_own_page": is_own_page,  # ★追加
             "lyricist_suggestions": lyricist_suggestions,
             "composer_suggestions": composer_suggestions,
+            "year_suggestions": year_suggestions,
         },
     )
 
 
-# 作詞者・作曲者の曲一覧
+# 作詞者・作曲者・年の曲一覧
 @login_required
 def creator_song_list_view(request):
     creator_type = request.GET.get("type", "")
@@ -653,6 +675,15 @@ def creator_song_list_view(request):
         return redirect("lyricist_list")
 
     creator_label = CREATOR_TYPE_LABELS[creator_type]
+
+    # year は数値カラム。文字列で来るので int に変換してフィルタ
+    if creator_type == "year":
+        try:
+            filter_value = int(creator_name)
+        except ValueError:
+            return redirect("year_list")
+    else:
+        filter_value = creator_name
 
     # ユーザー選択（未指定ならログインユーザー）
     users = User.objects.all().order_by("username")
@@ -671,7 +702,7 @@ def creator_song_list_view(request):
     ).values("score")[:1]
 
     songs = list(
-        Song.objects.filter(**{creator_type: creator_name})
+        Song.objects.filter(**{creator_type: filter_value})
         .annotate(
             user_score=Subquery(user_score_subquery, output_field=IntegerField())
         )
@@ -831,7 +862,7 @@ def bulk_add_view(request):
             existing_songs = []
             existing_titles_json = "[]"
 
-    # ★ datalist 用：作詞・作曲の既存候補（全曲から重複なしで集める）
+    # ★ datalist 用：作詞・作曲・年 の既存候補（全曲から重複なしで集める）
     lyricist_suggestions = sorted(
         Song.objects.exclude(lyricist__isnull=True)
         .exclude(lyricist__exact="")
@@ -842,6 +873,11 @@ def bulk_add_view(request):
         Song.objects.exclude(composer__isnull=True)
         .exclude(composer__exact="")
         .values_list("composer", flat=True)
+        .distinct()
+    )
+    year_suggestions = sorted(
+        Song.objects.exclude(year__isnull=True)
+        .values_list("year", flat=True)
         .distinct()
     )
 
@@ -859,10 +895,21 @@ def bulk_add_view(request):
             "existing_titles_json": existing_titles_json,  # ★追加
             "lyricist_suggestions": lyricist_suggestions,
             "composer_suggestions": composer_suggestions,
+            "year_suggestions": year_suggestions,
         }
         if error:
             ctx["error"] = error
         return render(request, "songs/bulk_add.html", ctx)
+
+
+    def _parse_year(raw):
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
 
     if request.method == "POST":
         user = request.user
@@ -901,6 +948,7 @@ def bulk_add_view(request):
                 is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
                 lyricist = request.POST.get(f"song_lyricist_{i}", "").strip()
                 composer = request.POST.get(f"song_composer_{i}", "").strip()
+                year_val = _parse_year(request.POST.get(f"song_year_{i}"))
                 if not title:
                     continue
 
@@ -913,6 +961,7 @@ def bulk_add_view(request):
                             is_cover=is_cover,
                             lyricist=lyricist or None,
                             composer=composer or None,
+                            year=year_val,
                         )
                     except IntegrityError:
                         song = Song.objects.get(title=title, artist=artist)
@@ -921,6 +970,8 @@ def bulk_add_view(request):
                             song.lyricist = lyricist
                         if composer:
                             song.composer = composer
+                        if year_val is not None:
+                            song.year = year_val
                         song.save()
                 else:
                     song.is_cover = is_cover
@@ -928,6 +979,8 @@ def bulk_add_view(request):
                         song.lyricist = lyricist
                     if composer:
                         song.composer = composer
+                    if year_val is not None:
+                        song.year = year_val
                     song.save()
 
                 if score:
@@ -955,6 +1008,7 @@ def bulk_add_view(request):
                 is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
                 lyricist = request.POST.get(f"song_lyricist_{i}", "").strip()
                 composer = request.POST.get(f"song_composer_{i}", "").strip()
+                year_val = _parse_year(request.POST.get(f"song_year_{i}"))
                 artist_id_i = request.POST.get(f"artist_id_{i}")
                 new_artist_name_i = request.POST.get(f"new_artist_name_{i}", "").strip()
                 region_id_i = request.POST.get(f"region_id_{i}")
@@ -989,6 +1043,7 @@ def bulk_add_view(request):
                             is_cover=is_cover,
                             lyricist=lyricist or None,
                             composer=composer or None,
+                            year=year_val,
                         )
                     except IntegrityError:
                         song = Song.objects.get(title=title, artist=artist)
@@ -997,6 +1052,8 @@ def bulk_add_view(request):
                             song.lyricist = lyricist
                         if composer:
                             song.composer = composer
+                        if year_val is not None:
+                            song.year = year_val
                         song.save()
                 else:
                     song.is_cover = is_cover
@@ -1004,6 +1061,8 @@ def bulk_add_view(request):
                         song.lyricist = lyricist
                     if composer:
                         song.composer = composer
+                    if year_val is not None:
+                        song.year = year_val
                     song.save()
 
                 if score_str:

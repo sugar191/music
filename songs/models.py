@@ -42,6 +42,7 @@ class Song(models.Model):
     )
     lyricist = models.CharField(max_length=200, null=True, blank=True)
     composer = models.CharField(max_length=200, null=True, blank=True)
+    year = models.IntegerField(null=True, blank=True)
 
     class Meta:
         unique_together = (
@@ -51,6 +52,7 @@ class Song(models.Model):
         indexes = [
             models.Index(fields=["lyricist"]),
             models.Index(fields=["composer"]),
+            models.Index(fields=["year"]),
         ]
 
     def __str__(self):

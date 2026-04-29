@@ -38,10 +38,13 @@ urlpatterns = [
     path("update-credits/", update_song_credits_view, name="update_song_credits"),
     path("lyricists/", creator_list_view, {"creator_type": "lyricist"}, name="lyricist_list"),
     path("composers/", creator_list_view, {"creator_type": "composer"}, name="composer_list"),
+    path("years/", creator_list_view, {"creator_type": "year"}, name="year_list"),
     path("lyricist-grid/", creator_grid_view, {"creator_type": "lyricist"}, name="lyricist_grid"),
     path("composer-grid/", creator_grid_view, {"creator_type": "composer"}, name="composer_grid"),
+    path("year-grid/", creator_grid_view, {"creator_type": "year"}, name="year_grid"),
     path("lyricist-matrix/", creator_matrix_view, {"creator_type": "lyricist"}, name="lyricist_matrix"),
     path("composer-matrix/", creator_matrix_view, {"creator_type": "composer"}, name="composer_matrix"),
+    path("year-matrix/", creator_matrix_view, {"creator_type": "year"}, name="year_matrix"),
     path("creator-songs/", creator_song_list_view, name="creator_songs"),
     path("songs/bulk_add/", bulk_add_view, name="bulk_add_songs"),
     path(

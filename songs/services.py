@@ -1,15 +1,19 @@
 from django.db import connection
 
 
-# 作詞/作曲ランキング用の対象カラム（SQLインジェクション対策のためホワイトリスト化）
+# 作詞/作曲/年 ランキング用の対象カラム（SQLインジェクション対策のためホワイトリスト化）
+# value: (DBカラム名, 数値カラムか)
 _CREATOR_COLUMNS = {
-    "lyricist": "lyricist",
-    "composer": "composer",
+    "lyricist": ("lyricist", False),
+    "composer": ("composer", False),
+    "year": ("year", True),
 }
 
 
-def _creator_filtered_cte(col, region_filter):
-    """作詞/作曲ランキングの共通CTE: 評価済・非カバー・クリエイター入力済の曲を抽出"""
+def _creator_filtered_cte(col, region_filter, is_numeric=False):
+    """作詞/作曲/年ランキングの共通CTE: 評価済・非カバー・対象カラム入力済の曲を抽出"""
+    # 数値カラム（year）は <> '' のチェックを外す（型エラー回避）
+    empty_check = "" if is_numeric else f"AND s.{col} <> ''"
     return f"""
         WITH filtered AS (
             SELECT
@@ -27,7 +31,7 @@ def _creator_filtered_cte(col, region_filter):
             WHERE r.user_id = %s
               AND s.is_cover = 0
               AND s.{col} IS NOT NULL
-              AND s.{col} <> ''
+              {empty_check}
               {region_filter}
         ),
         counts AS (
@@ -38,15 +42,15 @@ def _creator_filtered_cte(col, region_filter):
 
 def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
     """
-    作詞者または作曲者ごとに、上位N曲の詳細を返す（歌手別TOPと同構造）。
-    creator_type: 'lyricist' または 'composer'
+    作詞者・作曲者・年ごとに、上位N曲の詳細を返す（歌手別TOPと同構造）。
+    creator_type: 'lyricist' / 'composer' / 'year'
     戻り値: 曲単位のdictリスト
       {creator, creator_rank, total_score, song_id, song_title,
        artist_id, artist_name, score, rank_creator, order_creator}
     """
     if creator_type not in _CREATOR_COLUMNS:
         raise ValueError(f"Invalid creator_type: {creator_type}")
-    col = _CREATOR_COLUMNS[creator_type]
+    col, is_numeric = _CREATOR_COLUMNS[creator_type]
 
     region_filter = ""
     params = [user_id]
@@ -57,7 +61,7 @@ def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
     params.append(top_n)  # order_creator <= top_n
 
     sql = (
-        _creator_filtered_cte(col, region_filter)
+        _creator_filtered_cte(col, region_filter, is_numeric)
         + """
         ,
         ranked AS (
@@ -117,12 +121,12 @@ def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
 
 def call_creator_insufficient_songs(user_id, top_n, region_id, creator_type):
     """
-    作詞者/作曲者ごとの曲数が top_n に満たないクリエイターの曲を返す（歌手別TOPの"その他"と同じ役割）。
+    作詞者/作曲者/年ごとの曲数が top_n に満たないクリエイターの曲を返す（歌手別TOPの"その他"と同じ役割）。
     戻り値: 曲単位のdictリスト（scoreの降順で順位付け）
     """
     if creator_type not in _CREATOR_COLUMNS:
         raise ValueError(f"Invalid creator_type: {creator_type}")
-    col = _CREATOR_COLUMNS[creator_type]
+    col, is_numeric = _CREATOR_COLUMNS[creator_type]
 
     region_filter = ""
     params = [user_id]
@@ -132,7 +136,7 @@ def call_creator_insufficient_songs(user_id, top_n, region_id, creator_type):
     params.append(top_n)  # song_count < top_n
 
     sql = (
-        _creator_filtered_cte(col, region_filter)
+        _creator_filtered_cte(col, region_filter, is_numeric)
         + """
         ,
         insufficient_creators AS (
