@@ -29,6 +29,7 @@ class SongSerializer(serializers.ModelSerializer):
             "is_cover",
             "lyricist",
             "composer",
+            "year",
         ]
 
     def validate(self, attrs):
