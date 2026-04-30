@@ -88,6 +88,7 @@ class RatingRowSerializer(serializers.ModelSerializer):
             "user_id",
             "song_id",
             "score",
+            "karaoke_score",
             "created_at",
             "updated_at",
         ]

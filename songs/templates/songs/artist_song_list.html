@@ -3,6 +3,14 @@
 {% load get_item %}
 {% block title %}{{ artist.name }}の曲一覧{% endblock %}
 {% block content %}
+<style>
+    th.sortable-header { user-select: none; }
+    th.sortable-header:hover { text-decoration: underline; }
+    th.sortable-header.sort-active { background-color: #e6f0ff; }
+    .mobile-karaoke-switch { align-items: center; gap: 4px; margin-left: 8px; cursor: pointer; user-select: none; }
+    .mobile-karaoke-switch input { margin: 0; }
+    .mobile-karaoke-switch.on { background: #e6f0ff; border-radius: 4px; padding: 2px 6px; }
+</style>
 <!-- ユーザー選択プルダウン -->
 <div class="top-bar">
     <form method="get">
@@ -15,8 +23,12 @@
         </select>
     </form>
     <a href="{% url 'bulk_add_songs' %}?artist_id={{ artist.id }}">曲追加</a>
+    <label class="mobile-only mobile-karaoke-switch" title="ONで🎤採点列、OFFで点数列を表示">
+        <input type="checkbox" id="mobile-karaoke-switch">
+        🎤
+    </label>
 </div>
-<div class="table-area">
+<div class="table-area" data-mobile-mode="score">
     <div class="bulk-credit-bar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
         <span>{{ artist.name }}の曲一覧</span>
         <div class="pc-cell">
@@ -32,23 +44,29 @@
             <tr>
                 <th class="count-cell">順位</th>
                 <th>曲名</th>
-                <th>点数</th>
+                <th class="sortable-header score-col" data-sort-key="default" style="cursor:pointer;">点数</th>
+                <th class="sortable-header karaoke-col" data-sort-key="karaoke" style="cursor:pointer;">🎤採点</th>
                 <th class="cover-cell">カバー</th>
                 <th class="pc-cell">作詞</th>
                 <th class="pc-cell">作曲</th>
-                <th class="pc-cell">年</th>
+                <th class="pc-cell year-cell">年</th>
                 <th class="pc-cell"><input type="checkbox" id="bulk-select-all"></th>
             </tr>
         </thead>
         <tbody>
             {% for entry in songs %}
             {% with song=entry.song %}
-            <tr>
+            <tr class="song-row"
+                data-song-id="{{ song.id }}"
+                data-is-cover="{% if song.is_cover %}1{% else %}0{% endif %}"
+                data-user-score="{{ entry.user_score|default_if_none:'' }}"
+                data-karaoke-score="{{ entry.user_karaoke_score|default_if_none:'' }}"
+                data-title="{{ song.title }}">
                 <td class="count-cell">{{ entry.rank }}</td>
                 <td>
                     <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
                 </td>
-                <td class="score-cell">
+                <td class="score-cell score-col">
                     {% if is_own_page %}
                         {% with form=rating_forms|get_item:song.id %}
                             <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
@@ -56,6 +74,19 @@
                     {% else %}
                         {% if entry.user_score is not None %}
                             {{ entry.user_score }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    {% endif %}
+                </td>
+                <td class="score-cell karaoke-col">
+                    {% if is_own_page %}
+                        {% with form=rating_forms|get_item:song.id %}
+                            <input type="number" name="{{ song.id }}-karaoke-score" step="0.001" min="0" max="100" value="{{ form.initial.karaoke_score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="karaoke-score-input">
+                        {% endwith %}
+                    {% else %}
+                        {% if entry.user_karaoke_score is not None %}
+                            {{ entry.user_karaoke_score }}
                         {% else %}
                             -
                         {% endif %}
@@ -82,7 +113,7 @@
                     {% if song.year %}
                         <a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year }}</a>
                     {% else %}
-                        <input type="number" class="credit-input" data-song-id="{{ song.id }}" data-field="year" list="year-suggestions" value="" placeholder="年">
+                        <input type="number" class="year-input" data-song-id="{{ song.id }}" data-field="year" list="year-suggestions" value="" placeholder="年">
                     {% endif %}
                 </td>
                 <td class="pc-cell">
@@ -91,7 +122,7 @@
             </tr>
             {% endwith %}
             {% empty %}
-                <tr><td colspan="8">曲が見つかりませんでした。</td></tr>
+                <tr><td colspan="9">曲が見つかりませんでした。</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -119,9 +150,16 @@
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const updateRatingUrl = "{% url 'update_rating' %}";
+        const updateKaraokeScoreUrl = "{% url 'update_karaoke_score' %}";
         const updateCoverUrl = "{% url 'update_cover' %}";
         const updateCreditsUrl = "{% url 'update_song_credits' %}";
         const csrfToken = "{{ csrf_token }}";
+
+        // 行の data 属性を更新するヘルパ
+        function updateRowData(songId, key, value) {
+            const row = document.querySelector(`tr.song-row[data-song-id="${songId}"]`);
+            if (row) row.dataset[key] = (value === null || value === undefined) ? "" : value;
+        }
 
         // 点数入力処理
         document.querySelectorAll(".score-input").forEach(input => {
@@ -141,7 +179,12 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    if (!data.success) alert(`保存エラー: ${data.error}`);
+                    if (!data.success) {
+                        alert(`保存エラー: ${data.error}`);
+                    } else {
+                        // 行の data-user-score を更新（次のソートに反映するため）
+                        updateRowData(songId, "userScore", data.score);
+                    }
                 })
                 .catch(error => {
                     alert("点数保存中にエラーが発生しました");
@@ -152,6 +195,136 @@
                 });
             });
         });
+
+        // カラオケ採点入力処理
+        document.querySelectorAll(".karaoke-score-input").forEach(input => {
+            input.addEventListener("change", function () {
+                const songId = this.dataset.songId;
+                const karaokeScore = this.value;
+
+                showOverlay();
+
+                fetch(updateKaraokeScoreUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "X-CSRFToken": csrfToken,
+                    },
+                    body: `song_id=${encodeURIComponent(songId)}&karaoke_score=${encodeURIComponent(karaokeScore)}`,
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        alert(`カラオケ採点保存エラー: ${data.error}`);
+                    } else {
+                        updateRowData(songId, "karaokeScore", data.karaoke_score);
+                    }
+                })
+                .catch(error => {
+                    alert("カラオケ採点保存中にエラーが発生しました");
+                    console.error(error);
+                })
+                .finally(() => {
+                    hideOverlay();
+                });
+            });
+        });
+
+        // ===== ソート処理 =====
+        const tbody = document.querySelector(".table-area tbody");
+
+        function compareTitleAsc(a, b) {
+            const ta = (a.dataset.title || "").toLowerCase();
+            const tb = (b.dataset.title || "").toLowerCase();
+            return ta.localeCompare(tb);
+        }
+
+        function sortDefault() {
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll("tr.song-row"));
+            rows.sort((a, b) => {
+                // is_cover=1 を後ろに
+                const ac = a.dataset.isCover === "1" ? 1 : 0;
+                const bc = b.dataset.isCover === "1" ? 1 : 0;
+                if (ac !== bc) return ac - bc;
+
+                // user_score 降順（空はマイナス無限大として最後に）
+                const av = a.dataset.userScore;
+                const bv = b.dataset.userScore;
+                const an = av === "" ? -Infinity : Number(av);
+                const bn = bv === "" ? -Infinity : Number(bv);
+                if (an !== bn) return bn - an;
+
+                // タイトル昇順
+                return compareTitleAsc(a, b);
+            });
+            rows.forEach(r => tbody.appendChild(r));
+        }
+
+        function sortKaraoke() {
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll("tr.song-row"));
+            rows.sort((a, b) => {
+                // karaoke_score 降順（空はマイナス無限大として最後に）
+                const akv = a.dataset.karaokeScore;
+                const bkv = b.dataset.karaokeScore;
+                const ak = akv === "" ? -Infinity : Number(akv);
+                const bk = bkv === "" ? -Infinity : Number(bkv);
+                if (ak !== bk) return bk - ak;
+
+                // score 降順（空はマイナス無限大として最後に）
+                const asv = a.dataset.userScore;
+                const bsv = b.dataset.userScore;
+                const as = asv === "" ? -Infinity : Number(asv);
+                const bs = bsv === "" ? -Infinity : Number(bsv);
+                if (as !== bs) return bs - as;
+
+                // タイトル昇順
+                return compareTitleAsc(a, b);
+            });
+            rows.forEach(r => tbody.appendChild(r));
+        }
+
+        document.querySelectorAll(".sortable-header").forEach(th => {
+            th.addEventListener("click", function () {
+                const key = this.dataset.sortKey;
+                // ヘッダの選択状態表示
+                document.querySelectorAll(".sortable-header").forEach(h => h.classList.remove("sort-active"));
+                this.classList.add("sort-active");
+
+                if (key === "karaoke") {
+                    sortKaraoke();
+                } else {
+                    sortDefault();
+                }
+            });
+        });
+
+        // ===== スマホ用🎤スイッチ =====
+        const mobileKaraokeSwitch = document.getElementById("mobile-karaoke-switch");
+        const tableArea = document.querySelector(".table-area");
+        const mobileSwitchLabel = mobileKaraokeSwitch ? mobileKaraokeSwitch.closest(".mobile-karaoke-switch") : null;
+
+        function applyMobileMode() {
+            if (!mobileKaraokeSwitch || !tableArea) return;
+            if (mobileKaraokeSwitch.checked) {
+                // ON: 点数列非表示 + カラオケソート
+                tableArea.dataset.mobileMode = "karaoke";
+                if (mobileSwitchLabel) mobileSwitchLabel.classList.add("on");
+                sortKaraoke();
+            } else {
+                // OFF: 🎤採点列非表示 + デフォルトソート
+                tableArea.dataset.mobileMode = "score";
+                if (mobileSwitchLabel) mobileSwitchLabel.classList.remove("on");
+                sortDefault();
+            }
+        }
+
+        if (mobileKaraokeSwitch) {
+            mobileKaraokeSwitch.addEventListener("change", applyMobileMode);
+            // 初期反映（PCでは見えないが、スマホ表示で正しい列が見えるようにmodeだけ設定）
+            applyMobileMode();
+        }
 
         // 作詞・作曲入力処理（change で保存）
         document.querySelectorAll(".credit-input").forEach(input => {

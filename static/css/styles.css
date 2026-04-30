@@ -303,6 +303,10 @@ select option {
     text-align: right;
 }
 
+.year-cell {
+    width: 90px;
+}
+
 .count-cell {
     width: 45px;
     text-align: right;
@@ -330,7 +334,11 @@ select option {
 }
 
 .score-input {
-    width: 50px;
+    width: 60px;
+}
+
+.karaoke-score-input {
+    width: 100px;
 }
 
 .year-input {
@@ -350,6 +358,9 @@ select option {
     display: table-cell;
 }
 .mobile-cell {
+    display: none;
+}
+.mobile-only {
     display: none;
 }
 
@@ -379,6 +390,16 @@ select option {
     }
     .mobile-cell {
         display: table-cell;
+    }
+    .mobile-only {
+        display: inline-flex;
+    }
+    /* artist_song_list: スマホ時に🎤スイッチで列を切り替え */
+    .table-area[data-mobile-mode="score"] .karaoke-col {
+        display: none;
+    }
+    .table-area[data-mobile-mode="karaoke"] .score-col {
+        display: none;
     }
     .navbar {
         overflow: visible;     /* ★これが超重要：absoluteメニューをクリップしない */

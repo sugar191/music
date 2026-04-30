@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from decimal import Decimal, InvalidOperation
 from collections import defaultdict
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
@@ -8,7 +9,16 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q, OuterRef, Subquery, IntegerField, Count, Min
+from django.db.models import (
+    F,
+    Q,
+    OuterRef,
+    Subquery,
+    IntegerField,
+    DecimalField,
+    Count,
+    Min,
+)
 from django.db.models.functions import Coalesce, Lower
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
@@ -492,19 +502,56 @@ def song_ranking_view(request):
         else request.user
     )
 
-    qs = RankView.objects.filter(user_id=selected_user.id)
+    karaoke_mode = request.GET.get("karaoke") == "1"
 
-    if region_id:
-        qs = qs.filter(region_id=region_id).annotate(
-            display_rank=F("rank_region"),
-            display_order=F("order_region"),
-        )
+    if karaoke_mode:
+        # カラオケ採点ランキング: karaoke_score 降順 → タイトル昇順
+        rating_qs = Rating.objects.filter(
+            user=selected_user,
+            karaoke_score__isnull=False,
+        ).select_related("song", "song__artist")
+        if region_id:
+            rating_qs = rating_qs.filter(song__artist__region_id=region_id)
+        rating_qs = rating_qs.order_by("-karaoke_score", Lower("song__title"))
+
+        # 同点は同順位、次は飛ばす
+        ranked = []
+        prev_score = object()  # 必ず最初は一致しないようにセンチネル
+        current_rank = 0
+        next_rank = 1
+        for r in rating_qs:
+            ks = r.karaoke_score
+            if ks != prev_score:
+                current_rank = next_rank
+            ranked.append(
+                {
+                    "display_rank": current_rank,
+                    "artist_id": r.song.artist_id,
+                    "artist_name": r.song.artist.name,
+                    "song_id": r.song_id,
+                    "song_title": r.song.title,
+                    "score": ks,
+                }
+            )
+            prev_score = ks
+            next_rank += 1
+
+        songs = ranked
     else:
-        qs = qs.annotate(
-            display_rank=F("rank_all"),
-            display_order=F("order_all"),
-        )
-    qs = qs.order_by("display_order")
+        qs = RankView.objects.filter(user_id=selected_user.id)
+
+        if region_id:
+            qs = qs.filter(region_id=region_id).annotate(
+                display_rank=F("rank_region"),
+                display_order=F("order_region"),
+            )
+        else:
+            qs = qs.annotate(
+                display_rank=F("rank_all"),
+                display_order=F("order_all"),
+            )
+        qs = qs.order_by("display_order")
+        songs = qs
 
     return render(
         request,
@@ -513,9 +560,10 @@ def song_ranking_view(request):
             "regions": regions,
             "users": users,
             "selected_user": selected_user,
-            "songs": qs,  # テンプレートは display_rank / display_order を表示
+            "songs": songs,  # テンプレートは display_rank / score を表示
             "is_own_page": selected_user == request.user,
             "region_id": region_id,
+            "karaoke_mode": karaoke_mode,
         },
     )
 
@@ -591,9 +639,18 @@ def artist_song_list_view(request, artist_id):
         song=OuterRef("pk"),
     ).values("score")[:1]
 
+    user_karaoke_subquery = Rating.objects.filter(
+        user=selected_user,
+        song=OuterRef("pk"),
+    ).values("karaoke_score")[:1]
+
     songs = list(
         artist.songs.annotate(
-            user_score=Subquery(user_score_subquery, output_field=IntegerField())
+            user_score=Subquery(user_score_subquery, output_field=IntegerField()),
+            user_karaoke_score=Subquery(
+                user_karaoke_subquery,
+                output_field=DecimalField(max_digits=6, decimal_places=3),
+            ),
         )
         .select_related("artist")
         .order_by("is_cover", "-user_score", Lower("title"))
@@ -619,7 +676,12 @@ def artist_song_list_view(request, artist_id):
         rating_forms[song.id] = form
 
         ranked_songs.append(
-            {"song": song, "rank": current_rank, "user_score": song.user_score}
+            {
+                "song": song,
+                "rank": current_rank,
+                "user_score": song.user_score,
+                "user_karaoke_score": song.user_karaoke_score,
+            }
         )
 
         prev_score = song.user_score
@@ -788,6 +850,53 @@ def update_rating_view(request):
 
     except Song.DoesNotExist:
         return JsonResponse({"error": "指定された曲が存在しません"}, status=404)
+
+
+@csrf_exempt  # 本番では CSRF トークンの使用を推奨
+@require_POST
+@login_required
+def update_karaoke_score_view(request):
+    user = request.user
+    song_id = request.POST.get("song_id")
+    karaoke_score_raw = request.POST.get("karaoke_score", "")
+
+    try:
+        song = Song.objects.get(pk=song_id)
+    except Song.DoesNotExist:
+        return JsonResponse(
+            {"success": False, "error": "指定された曲が存在しません"}, status=404
+        )
+
+    if karaoke_score_raw is None or karaoke_score_raw.strip() == "":
+        karaoke_score = None
+    else:
+        try:
+            karaoke_score = Decimal(karaoke_score_raw)
+        except (InvalidOperation, ValueError):
+            return JsonResponse(
+                {"success": False, "error": "カラオケ点数は数値で入力してください"},
+                status=400,
+            )
+        if not (Decimal("0") <= karaoke_score <= Decimal("100")):
+            return JsonResponse(
+                {"success": False, "error": "カラオケ点数は0〜100で入力してください"},
+                status=400,
+            )
+
+    rating, _ = Rating.objects.get_or_create(
+        user=user,
+        song=song,
+        defaults={"karaoke_score": karaoke_score},
+    )
+    rating.karaoke_score = karaoke_score
+    rating.save(update_fields=["karaoke_score", "updated_at"])
+
+    return JsonResponse(
+        {
+            "success": True,
+            "karaoke_score": str(karaoke_score) if karaoke_score is not None else None,
+        }
+    )
 
 
 @require_POST

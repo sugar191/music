@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
@@ -32,8 +33,10 @@ def find_song_loose_readonly(artist_name: str, title: str):
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 def update_score(request):
+    data = request.data
+
     # 1) まず song_id を見る（優先）
-    sid = request.data.get("song_id")
+    sid = data.get("song_id")
     song = None
     if sid:
         try:
@@ -45,31 +48,99 @@ def update_score(request):
         except Song.DoesNotExist:
             return Response({"detail": "song not found"}, status=404)
 
-    # 2) 無ければ従来どおり artist/title で検索
+    # 2) score / karaoke_score の入力チェック
+    score_raw = data.get("score")
+    karaoke_raw = data.get("karaoke_score")
+    has_score = score_raw is not None and str(score_raw).strip() != ""
+    has_karaoke = karaoke_raw is not None and str(karaoke_raw).strip() != ""
+
+    # 3) 無ければ従来どおり artist/title で検索
     if song is None:
-        artist = request.data.get("artist")
-        title = request.data.get("title")
-        score = request.data.get("score")
-        if not artist or not title or score is None:
+        artist = data.get("artist")
+        title = data.get("title")
+        if not artist or not title:
             return Response(
-                {"detail": "song_id または artist/title/score が必要です"}, status=400
+                {"detail": "song_id または artist/title が必要です"}, status=400
+            )
+        if not has_score and not has_karaoke:
+            return Response(
+                {"detail": "score または karaoke_score が必要です"}, status=400
             )
         song = find_song_loose_readonly(artist, title)
         if not song:
             return Response({"detail": "song not found"}, status=404)
     else:
-        score = request.data.get("score")
-        if score is None:
-            return Response({"detail": "score が必要です"}, status=400)
+        if not has_score and not has_karaoke:
+            return Response(
+                {"detail": "score または karaoke_score が必要です"}, status=400
+            )
 
-    rating, created = Rating.objects.update_or_create(
-        user=request.user, song=song, defaults={"score": int(score)}
-    )
+    # 4) 値の型変換とバリデーション
+    score_val = None
+    if has_score:
+        try:
+            score_val = int(score_raw)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "score は整数で指定してください"}, status=400
+            )
+        if not (0 <= score_val <= 100):
+            return Response(
+                {"detail": "score は 0〜100 で指定してください"}, status=400
+            )
+
+    karaoke_val = None
+    if has_karaoke:
+        try:
+            karaoke_val = Decimal(str(karaoke_raw))
+        except (TypeError, ValueError, InvalidOperation):
+            return Response(
+                {"detail": "karaoke_score は数値で指定してください"}, status=400
+            )
+        if not (Decimal("0") <= karaoke_val <= Decimal("100")):
+            return Response(
+                {"detail": "karaoke_score は 0〜100 で指定してください"},
+                status=400,
+            )
+
+    # 5) Rating の取得 → 新規 or 部分更新
+    try:
+        rating = Rating.objects.get(user=request.user, song=song)
+    except Rating.DoesNotExist:
+        rating = None
+
+    if rating is None:
+        # 新規追加: 与えられた側だけ入る（もう片方は NULL）
+        rating = Rating.objects.create(
+            user=request.user,
+            song=song,
+            score=score_val,  # has_score=False なら None
+            karaoke_score=karaoke_val,  # has_karaoke=False なら None
+        )
+        created = True
+    else:
+        update_fields = []
+        if has_score:
+            rating.score = score_val
+            update_fields.append("score")
+        if has_karaoke:
+            rating.karaoke_score = karaoke_val
+            update_fields.append("karaoke_score")
+        if update_fields:
+            update_fields.append("updated_at")
+            rating.save(update_fields=update_fields)
+        created = False
+
     return Response(
         {
             "artist": song.artist.name,
             "title": song.title,
             "score": rating.score,
+            "karaoke_score": (
+                str(rating.karaoke_score)
+                if rating.karaoke_score is not None
+                else None
+            ),
             "song_id": song.id,
             "created": created,
         }
