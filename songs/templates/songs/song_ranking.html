@@ -40,7 +40,7 @@
                 <th>作曲</th>
                 <th>年</th>
                 <th>点数</th>
-                <th>🎤採点</th>
+                <th>🎤</th>
             </thead>
             <tbody>
                 {% for song in songs %}
@@ -57,10 +57,14 @@
                             <div><a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a></div>
                         </td>
                         <td class="pc-cell">
-                            <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a>
-                        </td>
+                            {% if song.lyricist %}
+                                <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a>
+                            {% endif %}
+                            </td>
                         <td class="pc-cell">
-                            <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a>
+                            {% if song.composer %}
+                                <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a>
+                            {% endif %}
                         </td>
                         <td class="year-cell pc-cell">
                             {% if song.year %}
