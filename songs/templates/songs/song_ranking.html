@@ -32,6 +32,16 @@
     </div>
     <div class="table-area">
         <table>
+            <thead class="pc-display">
+                <th>順位</th>
+                <th>歌手</th>
+                <th>曲名</th>
+                <th>作詞</th>
+                <th>作曲</th>
+                <th>年</th>
+                <th>点数</th>
+                <th>🎤採点</th>
+            </thead>
             <tbody>
                 {% for song in songs %}
                     <tr>
@@ -46,13 +56,37 @@
                             <div><a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a></div>
                             <div><a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a></div>
                         </td>
+                        <td class="pc-cell">
+                            <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a>
+                        </td>
+                        <td class="pc-cell">
+                            <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a>
+                        </td>
+                        <td class="year-cell pc-cell">
+                            {% if song.year %}
+                                <a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year }}</a>
+                            {% endif %}
+                        </td>
                         <td class="score-cell">
-                            {% if is_own_page %}
-                                <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}"{% if karaoke_mode %} data-karaoke="1"{% endif %}>
+                            {% if song.score %}
+                                {% if is_own_page %}
+                                    <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}"{% if karaoke_mode %} data-karaoke="1"{% endif %}>
+                                        {{ song.score }}
+                                    </span>
+                                {% else %}
                                     {{ song.score }}
-                                </span>
-                            {% else %}
-                                {{ song.score }}
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td class="score-cell pc-cell">
+                            {% if song.karaoke_score %}
+                                {% if is_own_page %}
+                                    <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.karaoke_score }}" data-karaoke="1">
+                                        {{ song.karaoke_score }}
+                                    </span>
+                                {% else %}
+                                    {{ song.karaoke_score }}
+                                {% endif %}
                             {% endif %}
                         </td>
                     </tr>

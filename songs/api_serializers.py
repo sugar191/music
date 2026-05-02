@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Artist, Song, Rating, ArtistSongView
+from .models import Artist, Song, Rating
 from .utils import normalize
 
 

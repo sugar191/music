@@ -49,7 +49,7 @@
                 <th class="cover-cell">カバー</th>
                 <th class="pc-cell">作詞</th>
                 <th class="pc-cell">作曲</th>
-                <th class="pc-cell year-cell">年</th>
+                <th class="pc-cell">年</th>
                 <th class="pc-cell"><input type="checkbox" id="bulk-select-all"></th>
             </tr>
         </thead>
@@ -109,11 +109,11 @@
                         <input type="text" class="credit-input" data-song-id="{{ song.id }}" data-field="composer" list="composer-suggestions" value="" placeholder="作曲">
                     {% endif %}
                 </td>
-                <td class="credit-cell pc-cell" data-song-id="{{ song.id }}" data-field="year">
+                <td class="credit-cell pc-cell year-cell" data-song-id="{{ song.id }}" data-field="year">
                     {% if song.year %}
                         <a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year }}</a>
                     {% else %}
-                        <input type="number" class="year-input" data-song-id="{{ song.id }}" data-field="year" list="year-suggestions" value="" placeholder="年">
+                        <input type="number" class="credit-input year-input" data-song-id="{{ song.id }}" data-field="year" list="year-suggestions" value="" placeholder="年">
                     {% endif %}
                 </td>
                 <td class="pc-cell">

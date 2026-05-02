@@ -1,6 +1,5 @@
 from django.db import connection
 
-
 # 作詞/作曲/年 ランキング用の対象カラム（SQLインジェクション対策のためホワイトリスト化）
 # value: (DBカラム名, 数値カラムか)
 _CREATOR_COLUMNS = {
@@ -60,9 +59,7 @@ def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
     params.append(top_n)  # song_count >= top_n
     params.append(top_n)  # order_creator <= top_n
 
-    sql = (
-        _creator_filtered_cte(col, region_filter, is_numeric)
-        + """
+    sql = _creator_filtered_cte(col, region_filter, is_numeric) + """
         ,
         ranked AS (
             SELECT
@@ -111,7 +108,6 @@ def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
         JOIN ranked_totals rt ON ts.creator = rt.creator
         ORDER BY rt.creator_rank, UPPER(ts.creator), ts.order_creator
     """
-    )
 
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
@@ -135,9 +131,7 @@ def call_creator_insufficient_songs(user_id, top_n, region_id, creator_type):
         params.append(int(region_id))
     params.append(top_n)  # song_count < top_n
 
-    sql = (
-        _creator_filtered_cte(col, region_filter, is_numeric)
-        + """
+    sql = _creator_filtered_cte(col, region_filter, is_numeric) + """
         ,
         insufficient_creators AS (
             SELECT creator FROM counts WHERE song_count < %s
@@ -154,7 +148,6 @@ def call_creator_insufficient_songs(user_id, top_n, region_id, creator_type):
         JOIN insufficient_creators ic ON f.creator = ic.creator
         ORDER BY f.score DESC, UPPER(f.artist_name), UPPER(f.song_title)
     """
-    )
 
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
@@ -185,6 +178,7 @@ def call_my_procedure(procname, *args):
 # ===== 歌手別ランキング（インライン CTE 版） =====
 # 旧プロシージャ get_artist_top_n / get_artist_insufficient と
 # rank_view / artist_song_counts_view への依存を排除して書き直したもの。
+
 
 def _artist_filtered_cte(region_filter):
     """歌手ランキング用CTE: ユーザの評価済み非カバー曲＋歌手単位の曲数を計算"""
@@ -230,9 +224,7 @@ def call_artist_song_top_n(user_id, top_n, region_id):
     params.append(top_n)  # song_count >= top_n
     params.append(top_n)  # order_artist <= top_n
 
-    sql = (
-        _artist_filtered_cte(region_filter)
-        + """
+    sql = _artist_filtered_cte(region_filter) + """
         ,
         ranked AS (
             SELECT
@@ -283,7 +275,6 @@ def call_artist_song_top_n(user_id, top_n, region_id):
         JOIN ranked_totals rt ON ts.artist_id = rt.artist_id
         ORDER BY rt.artist_rank, UPPER(ts.artist_name), ts.order_artist
         """
-    )
 
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
@@ -306,9 +297,7 @@ def call_artist_top_n(user_id, top_n, region_id):
     params.append(top_n)  # song_count >= top_n
     params.append(top_n)  # order_artist <= top_n
 
-    sql = (
-        _artist_filtered_cte(region_filter)
-        + """
+    sql = _artist_filtered_cte(region_filter) + """
         ,
         ranked AS (
             SELECT
@@ -346,7 +335,6 @@ def call_artist_top_n(user_id, top_n, region_id):
         FROM totals
         ORDER BY artist_rank, UPPER(artist_name)
         """
-    )
 
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
@@ -371,9 +359,7 @@ def call_artist_insufficient_songs(user_id, top_n, region_id):
     params.append(top_n)  # order_artist <= top_n
     params.append(top_n)  # song_count < top_n
 
-    sql = (
-        _artist_filtered_cte(region_filter)
-        + """
+    sql = _artist_filtered_cte(region_filter) + """
         ,
         ranked AS (
             SELECT
@@ -405,7 +391,68 @@ def call_artist_insufficient_songs(user_id, top_n, region_id):
         FROM insufficient_songs
         ORDER BY score DESC, UPPER(artist_name), UPPER(song_title)
         """
-    )
+
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params)
+        columns = [c[0] for c in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def call_song_ranking(user_id, region_id):
+    """
+    全曲ランキング（旧 rank_view 置き換え）。
+    region_id 指定時はその地域内のランキング、未指定時は全体ランキング。
+    is_cover = 0 の曲のみ対象。
+    user_id を CTE 内で先に絞り込むため、ウィンドウ関数の対象行数を最小化できる。
+    戻り値: 曲単位のdictリスト
+      {display_rank, display_order, artist_id, artist_name,
+       song_id, song_title, score}
+    """
+    region_filter = ""
+    params = [user_id]
+    if region_id:
+        region_filter = "AND a.region_id = %s"
+        params.append(int(region_id))
+
+    sql = f"""
+        WITH filtered AS (
+            SELECT
+                s.id AS song_id,
+                s.title AS song_title,
+                s.artist_id,
+                a.name AS artist_name,
+                a.region_id,
+                r.score,
+                s.lyricist AS lyricist,
+                s.composer AS composer,
+                s.year AS year,
+                r.karaoke_score
+            FROM songs_rating r
+            JOIN songs_song s ON r.song_id = s.id
+            JOIN songs_artist a ON s.artist_id = a.id
+            WHERE r.user_id = %s
+              AND s.is_cover = 0
+              {region_filter}
+        )
+        SELECT
+            song_id,
+            song_title,
+            artist_id,
+            artist_name,
+            score,
+            RANK() OVER (
+                ORDER BY score DESC
+            ) AS display_rank,
+            ROW_NUMBER() OVER (
+                ORDER BY score DESC, UPPER(artist_name), UPPER(song_title)
+            ) AS display_order,
+            lyricist,
+            composer,
+            year,
+            karaoke_score
+        FROM filtered
+        ORDER BY display_order
+    """
 
     with connection.cursor() as cursor:
         cursor.execute(sql, params)

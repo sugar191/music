@@ -304,7 +304,8 @@ select option {
 }
 
 .year-cell {
-    width: 90px;
+    width: 60px;
+    text-align: right;
 }
 
 .count-cell {
@@ -334,11 +335,11 @@ select option {
 }
 
 .score-input {
-    width: 60px;
+    width: 50px;
 }
 
 .karaoke-score-input {
-    width: 100px;
+    width: 90px;
 }
 
 .year-input {
@@ -385,11 +386,23 @@ select option {
         width: 100%;
     }
 
+    .pc-display {
+        display: none;
+    }
+
     .pc-cell {
         display: none;
     }
     .mobile-cell {
         display: table-cell;
+    }
+
+    .score-input {
+        width: 40px;
+    }
+
+    .karaoke-score-input {
+        width: 70px;
     }
     .mobile-only {
         display: inline-flex;

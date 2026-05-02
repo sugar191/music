@@ -80,48 +80,6 @@ class Rating(models.Model):
         return f"{self.user.username} - {self.song.title} : {self.score}"
 
 
-class RankView(models.Model):
-    rank_id = models.IntegerField(primary_key=True)
-    artist_id = models.IntegerField()
-    artist_name = models.CharField(max_length=100)
-    region_id = models.IntegerField()
-    song_id = models.IntegerField()
-    song_title = models.CharField(max_length=100)
-    user_id = models.IntegerField()
-    score = models.IntegerField()
-    rank_artist = models.IntegerField()
-    order_artist = models.IntegerField()
-    rank_all = models.IntegerField()
-    order_all = models.IntegerField()
-    rank_region = models.IntegerField()
-    order_region = models.IntegerField()
-
-    class Meta:
-        managed = False  # DjangoがCREATE TABLEしないように
-        db_table = "rank_view"
-
-    def __str__(self):
-        return f"{self.user_id} - {self.song_title} : {self.score}"
-
-
-class ArtistSongView(models.Model):
-    artist_id = models.IntegerField()
-    artist_name = models.CharField(max_length=100)
-    region_id = models.IntegerField()
-    artist_format_name = models.CharField(max_length=100, null=True, blank=True)
-    song_id = models.IntegerField()
-    song_title = models.CharField(max_length=100)
-    is_cover = models.BooleanField(null=True, blank=True)
-    song_format_title = models.CharField(max_length=100, null=True, blank=True)
-
-    class Meta:
-        managed = False  # DjangoがCREATE TABLEしないように
-        db_table = "artist_song_view"
-
-    def __str__(self):
-        return f"{self.artist_name} : {self.song_title}"
-
-
 class ArtistYearPreference(models.Model):
     """
     アーティスト × 年 の好き度 (0〜4)

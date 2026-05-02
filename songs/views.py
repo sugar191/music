@@ -31,7 +31,6 @@ from .models import (
     Song,
     Rating,
     MusicRegion,
-    RankView,
     ArtistYearPreference,
     UserProfile,
 )
@@ -42,6 +41,7 @@ from .services import (
     call_artist_top_n,
     call_creator_song_top_n,
     call_creator_insufficient_songs,
+    call_song_ranking,
 )
 
 CREATOR_TYPE_LABELS = {
@@ -538,20 +538,10 @@ def song_ranking_view(request):
 
         songs = ranked
     else:
-        qs = RankView.objects.filter(user_id=selected_user.id)
-
-        if region_id:
-            qs = qs.filter(region_id=region_id).annotate(
-                display_rank=F("rank_region"),
-                display_order=F("order_region"),
-            )
-        else:
-            qs = qs.annotate(
-                display_rank=F("rank_all"),
-                display_order=F("order_all"),
-            )
-        qs = qs.order_by("display_order")
-        songs = qs
+        # CTE 版（services.call_song_ranking）に置き換え。
+        # 旧 rank_view は user_id でフィルタする前に全ユーザ分のウィンドウ計算を
+        # 走らせていたため、ここでは user_id を先に絞った CTE を使う。
+        songs = call_song_ranking(selected_user.id, region_id)
 
     return render(
         request,
