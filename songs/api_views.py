@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
@@ -14,6 +15,21 @@ from .api_serializers import (
     RatingRowSerializer,
 )
 from .utils import normalize
+
+
+def _write_api_permissions():
+    """
+    書き込み系APIの権限クラス。settings.REQUIRE_API_AUTH で切り替える。
+
+    True  : トークン認証必須（本来あるべき状態）
+    False : 認証なしで通す（外部クライアント更新までの移行期間のみ）
+
+    デコレータは起動時に一度だけ評価されるため、
+    .env を変えたらプロセスの再起動が必要。
+    """
+    if getattr(settings, "REQUIRE_API_AUTH", True):
+        return [permissions.IsAuthenticated]
+    return [permissions.AllowAny]
 
 
 def find_song_loose_readonly(artist_name: str, title: str):
@@ -199,11 +215,7 @@ class SongsRatingExport(APIView):
 
 
 @api_view(["POST"])
-# !!! 認証なしで誰でも呼べる書き込みAPI !!!
-# 本番URLは公開されているため、第三者が歌手・曲を無制限に作成できる。
-# 外部クライアント側にトークンを設定できるようになったら
-# permissions.IsAuthenticated に変更すること。
-@permission_classes([permissions.AllowAny])
+@permission_classes(_write_api_permissions())
 @transaction.atomic
 def create_song_with_artist(request):
     """
@@ -337,12 +349,7 @@ def create_song_with_artist(request):
 
 
 @api_view(["POST"])
-# !!! 認証なしで誰でも呼べる書き込みAPI !!!
-# しかも下記のとおり「未指定の項目は NULL で上書き」する全置換の仕様なので、
-# song_id さえ分かれば第三者が既存曲の作詞・作曲・年を消せてしまう。
-# 外部クライアント側にトークンを設定できるようになったら
-# permissions.IsAuthenticated に変更すること。
-@permission_classes([permissions.AllowAny])
+@permission_classes(_write_api_permissions())
 def update_song_credits(request):
     """
     POST /api/songs/update_credits

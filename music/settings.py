@@ -71,6 +71,17 @@ REST_FRAMEWORK = {
     ],
 }
 
+# 書き込み系API（songs/create_with_artist, songs/update_credits）に
+# 認証を要求するかどうか。長らく AllowAny のままだったものを閉じるための移行フラグ。
+#
+# 外部クライアント（WindowsGUI / Androidアプリ）がトークンを送るように
+# なるまでは False、両方の更新を確認できたら True にする。
+# 未設定時は安全側（True＝認証必須）に倒れるので、
+# 移行期間中は本番・開発どちらの .env にも明示的に False を書いておくこと。
+#
+# 変更を反映するにはプロセスの再起動が必要（デコレータは起動時に評価されるため）。
+REQUIRE_API_AUTH = config("REQUIRE_API_AUTH", default=True, cast=bool)
+
 MIDDLEWARE = [
     # レスポンス本文を書き換える他のミドルウェアより先に置く必要がある
     "django.middleware.gzip.GZipMiddleware",
