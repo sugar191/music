@@ -1,9 +1,7 @@
-import os
 import re
 import json
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
-from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
@@ -26,8 +24,6 @@ from django.urls import reverse
 from urllib.parse import urlencode
 from django.utils import timezone
 from django.views.decorators.http import require_POST
-from django.views.decorators.csrf import csrf_exempt
-from mutagen.easyid3 import EasyID3
 from .models import (
     Artist,
     Song,
@@ -54,8 +50,8 @@ CREATOR_TYPE_LABELS = {
     "year": "年",
 }
 
-MUSIC_DIR = r"C:\Users\pawab\Music"
-
+# 画面のプルダウンに出す top_n の選択肢。集計側（services.TOP_NS）と必ず揃える。
+RANKING_OPTIONS = list(TOP_NS)
 
 # ランキング系4画面（歌手別/作詞別/作曲別/年別TOP）の分割表示設定。
 # 全件を一度に返すとHTMLが数MBになるため、親カード→その他の順に少しずつ追加する。
@@ -70,16 +66,22 @@ RANKING_PARENT_LABELS = {
     "year": "年",
 }
 
+# region_id パラメータ未指定時の既定地域（1 = 邦楽）。
+DEFAULT_REGION_ID = "1"
 
-def _resolve_ranking_params(request):
-    """ランキング系4画面の共通パラメータ解決（region_id / selected_user / top_n）"""
+
+def _resolve_region_and_user(request):
+    """
+    全画面共通のパラメータ解決。
+      region_id: 未指定なら DEFAULT_REGION_ID、空文字なら None（＝全地域）
+      selected_user: user パラメータ指定時はそのユーザー、無ければログインユーザー
+    戻り値: (region_id, selected_user)
+    """
     if "region_id" not in request.GET:
-        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
-        region_id = "1"
+        region_id = DEFAULT_REGION_ID
     else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
+        # 空文字は「地域で絞らない」の意味なので None に落とす
+        region_id = request.GET.get("region_id") or None
 
     selected_user_id = request.GET.get("user")
     selected_user = (
@@ -87,6 +89,13 @@ def _resolve_ranking_params(request):
         if selected_user_id
         else request.user
     )
+
+    return region_id, selected_user
+
+
+def _resolve_ranking_params(request):
+    """ランキング系4画面の共通パラメータ解決（region_id / selected_user / top_n）"""
+    region_id, selected_user = _resolve_region_and_user(request)
 
     try:
         top_n = int(request.GET.get("top_n", 5))
@@ -205,8 +214,6 @@ def _ranking_page_context(kind, rankings, insufficient_songs):
 # 歌手別TOP
 @login_required
 def ranking_view(request):
-    # プルダウンの選択肢を取得
-    ranking_options = [5, 10, 15, 20]
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
@@ -217,7 +224,7 @@ def ranking_view(request):
     )
 
     context = {
-        "ranking_options": ranking_options,
+        "ranking_options": RANKING_OPTIONS,
         "regions": regions,
         "all_users": users,
         "top_n": top_n,
@@ -236,20 +243,7 @@ def artist_list_view(request):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    # 入力したパラメータを取得
-    if "region_id" not in request.GET:
-        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
-        region_id = "1"
-    else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
-    selected_user_id = request.GET.get("user")
-    selected_user = (
-        get_object_or_404(User, id=selected_user_id)
-        if selected_user_id
-        else request.user
-    )
+    region_id, selected_user = _resolve_region_and_user(request)
 
     # 4つの top_n を1クエリでまとめて取得し、共通形式
     # (display_name/display_link/display_rank/total_score) に正規化する
@@ -297,7 +291,6 @@ def creator_list_view(request, creator_type):
     if creator_type not in CREATOR_TYPE_LABELS:
         return redirect("artist_list")
 
-    ranking_options = [5, 10, 15, 20]
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
@@ -314,7 +307,7 @@ def creator_list_view(request, creator_type):
     }
 
     context = {
-        "ranking_options": ranking_options,
+        "ranking_options": RANKING_OPTIONS,
         "regions": regions,
         "all_users": users,
         "top_n": top_n,
@@ -437,19 +430,7 @@ def creator_grid_view(request, creator_type):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    if "region_id" not in request.GET:
-        region_id = "1"
-    else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
-
-    selected_user_id = request.GET.get("user")
-    selected_user = (
-        get_object_or_404(User, id=selected_user_id)
-        if selected_user_id
-        else request.user
-    )
+    region_id, selected_user = _resolve_region_and_user(request)
 
     # 4つの top_n を1クエリでまとめて取得し、共通形式
     # (display_name/display_link/display_rank/total_score) に正規化する
@@ -490,6 +471,22 @@ def creator_grid_view(request, creator_type):
     )
 
 
+# ランク表（rank_matrix.html）の並び順に使う番兵。
+# 「その top_n では圏外」の行を必ず後ろへ送るための十分に大きい値。
+_RANK_OUT_OF_RANGE = 10**9
+
+
+def _matrix_sort_key(row):
+    """
+    ランク表の行の並び順キー。
+    TOP5 の順位を最優先し、同順（または圏外）なら 10 → 15 → 20 と見ていき、
+    最後は表示名で安定させる。
+    """
+    return tuple(
+        row.get(f"rank_{n}", _RANK_OUT_OF_RANGE) for n in TOP_NS
+    ) + (row.get("display_name", ""),)
+
+
 # 作詞ランク / 作曲ランク / 年ランク（artist_rank_matrix と共通の rank_matrix.html を使用）
 @login_required
 def creator_matrix_view(request, creator_type):
@@ -499,19 +496,7 @@ def creator_matrix_view(request, creator_type):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    if "region_id" not in request.GET:
-        region_id = "1"
-    else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
-
-    selected_user_id = request.GET.get("user")
-    selected_user = (
-        get_object_or_404(User, id=selected_user_id)
-        if selected_user_id
-        else request.user
-    )
+    region_id, selected_user = _resolve_region_and_user(request)
 
     # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
     creator_songs_url = reverse("creator_songs")
@@ -532,18 +517,7 @@ def creator_matrix_view(request, creator_type):
                 row[f"score_{n}"] = r[f"total_{n}"]
         rows_by_creator[creator] = row
 
-    BIG = 10**9
-
-    def sort_key(row):
-        return (
-            row.get("rank_5", BIG),
-            row.get("rank_10", BIG),
-            row.get("rank_15", BIG),
-            row.get("rank_20", BIG),
-            row.get("display_name", ""),
-        )
-
-    matrix_rows = sorted(rows_by_creator.values(), key=sort_key)
+    matrix_rows = sorted(rows_by_creator.values(), key=_matrix_sort_key)
 
     return render(
         request,
@@ -599,20 +573,7 @@ def artist_rank_matrix_view(request):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    # region_id（他画面と揃える）
-    if "region_id" not in request.GET:
-        region_id = "1"
-    else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
-
-    selected_user_id = request.GET.get("user")
-    selected_user = (
-        get_object_or_404(User, id=selected_user_id)
-        if selected_user_id
-        else request.user
-    )
+    region_id, selected_user = _resolve_region_and_user(request)
 
     # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
     matrix_rows = []
@@ -633,19 +594,8 @@ def artist_rank_matrix_view(request):
                 row[f"score_{n}"] = r[f"total_{n}"]
         matrix_rows.append(row)
 
-    # 並び順：20→15→10→5 の順位がある順に昇順
-    BIG = 10**9
-
-    def sort_key(row):
-        return (
-            row.get("rank_5", BIG),
-            row.get("rank_10", BIG),
-            row.get("rank_15", BIG),
-            row.get("rank_20", BIG),
-            row.get("display_name", ""),
-        )
-
-    matrix_rows.sort(key=sort_key)
+    # 並び順：TOP5 → TOP10 → TOP15 → TOP20 の順位を優先して昇順
+    matrix_rows.sort(key=_matrix_sort_key)
 
     return render(
         request,
@@ -668,20 +618,7 @@ SONG_RANKING_PAGE_SIZE = 200
 
 def _resolve_song_ranking_params(request):
     """全曲TOP系ビューの共通パラメータ解決（region_id / selected_user / karaoke_mode）"""
-    if "region_id" not in request.GET:
-        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
-        region_id = "1"
-    else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
-
-    selected_user_id = request.GET.get("user")
-    selected_user = (
-        get_object_or_404(User, id=selected_user_id)
-        if selected_user_id
-        else request.user
-    )
+    region_id, selected_user = _resolve_region_and_user(request)
 
     karaoke_mode = request.GET.get("karaoke") == "1"
     return region_id, selected_user, karaoke_mode
@@ -822,7 +759,7 @@ def song_list_view(request):
             Q(title__icontains=query) | Q(artist__name__icontains=query)
         )
 
-    # ✅ ソート：artist.name → user_score（降順）→ title
+    # ソート：歌手名 → 自分の点数（降順）→ 曲名
     song_qs = song_qs.order_by("artist__name", "-user_score", "title")
 
     paginator = Paginator(song_qs, 100)
@@ -843,13 +780,10 @@ def song_list_view(request):
 
 # 歌手の曲リスト
 @login_required
-# 歌手の曲リスト
-@login_required
 def artist_song_list_view(request, artist_id):
-
     artist = get_object_or_404(Artist, pk=artist_id)
 
-    # ★追加：ユーザー選択（未指定ならログインユーザー）
+    # ユーザー選択（未指定ならログインユーザー）
     users = User.objects.all().order_by("username")
     selected_user_id = request.GET.get("user")
     selected_user = (
@@ -859,7 +793,7 @@ def artist_song_list_view(request, artist_id):
     )
     is_own_page = selected_user == request.user
 
-    # ★変更：selected_user の点数を取る
+    # 表示対象は selected_user の点数（他人のページも見られる）
     user_score_subquery = Rating.objects.filter(
         user=selected_user,
         song=OuterRef("pk"),
@@ -882,8 +816,11 @@ def artist_song_list_view(request, artist_id):
         .order_by("is_cover", "-user_score", Lower("title"))
     )
 
+    # 同点は同順位、次は飛ばす（1,1,3…）。
+    # prev_score は「未評価(None)の曲が先頭に来ても正しく1位から始まる」よう
+    # スコアとして絶対に一致しないセンチネルで初期化する。
     ranked_songs = []
-    prev_score = None
+    prev_score = object()
     current_rank = 0
     next_rank = 1
 
@@ -912,7 +849,7 @@ def artist_song_list_view(request, artist_id):
         prev_score = song.user_score
         next_rank += 1
 
-    # ★追加：datalist 用の既存クリエイター候補（このアーティストで入力済みのもの）
+    # datalist 用の既存クリエイター候補（このアーティストで入力済みのもの）
     # 取得済みの songs から組み立てる（以前は artist.songs.all() を3回引き直していた）
     lyricist_suggestions = sorted({s.lyricist for s in songs if s.lyricist})
     composer_suggestions = sorted({s.composer for s in songs if s.composer})
@@ -924,9 +861,9 @@ def artist_song_list_view(request, artist_id):
         {
             "artist": artist,
             "songs": ranked_songs,
-            "all_users": users,  # ★追加
-            "selected_user": selected_user,  # ★追加
-            "is_own_page": is_own_page,  # ★追加
+            "all_users": users,
+            "selected_user": selected_user,
+            "is_own_page": is_own_page,
             "lyricist_suggestions": lyricist_suggestions,
             "composer_suggestions": composer_suggestions,
             "year_suggestions": year_suggestions,
@@ -1027,7 +964,8 @@ def creator_song_list_view(request):
     )
 
 
-@csrf_exempt  # 本番では CSRF トークンの使用を推奨
+# 好み度（0〜100）の更新。呼び出し元テンプレートは X-CSRFToken を付けて fetch するため
+# csrf_exempt は不要（付けると CSRF 保護が外れるので付けないこと）。
 @require_POST
 @login_required
 def update_rating_view(request):
@@ -1037,36 +975,34 @@ def update_rating_view(request):
 
     try:
         song = Song.objects.get(pk=song_id)
-
-        if score is None or score.strip() == "":
-            return JsonResponse({"error": "スコアが空です"}, status=400)
-
-        try:
-            score = int(score)
-        except ValueError:
-            return JsonResponse({"error": "スコアは整数で入力してください"}, status=400)
-
-        if not (0 <= score <= 100):
-            return JsonResponse(
-                {"error": "スコアは0〜100で入力してください"}, status=400
-            )
-
-        rating, created = Rating.objects.get_or_create(
-            user=user,
-            song=song,
-            defaults={"score": score},
-        )
-        if not created:
-            rating.score = score
-            rating.save()
-
-        return JsonResponse({"success": True, "score": rating.score})
-
     except Song.DoesNotExist:
         return JsonResponse({"error": "指定された曲が存在しません"}, status=404)
 
+    if score is None or score.strip() == "":
+        return JsonResponse({"error": "スコアが空です"}, status=400)
 
-@csrf_exempt  # 本番では CSRF トークンの使用を推奨
+    try:
+        score = int(score)
+    except ValueError:
+        return JsonResponse({"error": "スコアは整数で入力してください"}, status=400)
+
+    if not (0 <= score <= 100):
+        return JsonResponse({"error": "スコアは0〜100で入力してください"}, status=400)
+
+    rating, created = Rating.objects.get_or_create(
+        user=user,
+        song=song,
+        defaults={"score": score},
+    )
+    if not created:
+        rating.score = score
+        # karaoke_score を巻き込まないよう更新列を限定する
+        rating.save(update_fields=["score", "updated_at"])
+
+    return JsonResponse({"success": True, "score": rating.score})
+
+
+# カラオケ採点（0〜100、小数3桁）の更新。CSRF については update_rating_view と同じ。
 @require_POST
 @login_required
 def update_karaoke_score_view(request):
@@ -1116,19 +1052,20 @@ def update_karaoke_score_view(request):
 @require_POST
 @login_required
 def update_cover_view(request):
+    """カバー曲フラグの切り替え。is_cover は "true" のときだけ True。"""
     song_id = request.POST.get("song_id")
-    is_cover_str = request.POST.get("is_cover")
-    is_cover = is_cover_str == "true"
+    is_cover = request.POST.get("is_cover") == "true"
 
     try:
         song = Song.objects.get(pk=song_id)
-        song.is_cover = is_cover
-        song.save()
-        return JsonResponse({"success": True})
     except Song.DoesNotExist:
-        return JsonResponse({"success": False, "error": "Song not found"})
-    except Exception as e:
-        return JsonResponse({"success": False, "error": str(e)})
+        return JsonResponse(
+            {"success": False, "error": "指定された曲が存在しません"}, status=404
+        )
+
+    song.is_cover = is_cover
+    song.save(update_fields=["is_cover"])
+    return JsonResponse({"success": True, "is_cover": is_cover})
 
 
 def _extract_indices(post_dict, prefix):
@@ -1143,6 +1080,65 @@ def _extract_indices(post_dict, prefix):
         if m:
             idxs.add(int(m.group(1)))
     return sorted(idxs)
+
+
+def _parse_year(raw):
+    """フォームの年入力を int か None に変換する（空欄・数値以外は None）。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _upsert_song(artist, title, *, is_cover, lyricist, composer, year):
+    """
+    曲を1件登録／更新する（曲追加画面の単一・複数モード共通）。
+
+    - 既存曲があれば is_cover は常に上書き、
+      作詞/作曲/年は「入力があったときだけ」上書きする（空欄で既存値を消さない）。
+    - 同時実行で UNIQUE(title, artist) に衝突した場合も取り直して更新に回す。
+    """
+    song = Song.objects.filter(title=title, artist=artist).first()
+
+    if song is None:
+        try:
+            return Song.objects.create(
+                title=title,
+                artist=artist,
+                is_cover=is_cover,
+                lyricist=lyricist or None,
+                composer=composer or None,
+                year=year,
+            )
+        except IntegrityError:
+            # 並行リクエストなどで先に作られていた場合は既存曲の更新に切り替える
+            song = Song.objects.get(title=title, artist=artist)
+
+    song.is_cover = is_cover
+    if lyricist:
+        song.lyricist = lyricist
+    if composer:
+        song.composer = composer
+    if year is not None:
+        song.year = year
+    song.save(update_fields=["is_cover", "lyricist", "composer", "year"])
+    return song
+
+
+def _save_bulk_score(user, song, raw_score):
+    """曲追加画面の点数欄を保存する。空欄・数値以外・範囲外は無視する。"""
+    raw_score = (raw_score or "").strip()
+    if not raw_score:
+        return
+    try:
+        score = int(raw_score)
+    except ValueError:
+        return
+    if 0 <= score <= 100:
+        Rating.objects.update_or_create(user=user, song=song, defaults={"score": score})
 
 
 # 曲追加
@@ -1160,7 +1156,7 @@ def bulk_add_view(request):
     # 初期表示で出しておく行数（増減可能）
     initial_rows = 5
 
-    # ★ 追加：必ず初期化しておく
+    # 歌手未選択でもテンプレートが参照するので必ず初期化しておく
     existing_songs = []
     existing_titles_json = "[]"
 
@@ -1186,7 +1182,7 @@ def bulk_add_view(request):
             existing_songs = []
             existing_titles_json = "[]"
 
-    # ★ datalist 用：作詞・作曲・年 の既存候補（全曲から重複なしで集める）
+    # datalist 用：作詞・作曲・年 の既存候補（全曲から重複なしで集める）
     lyricist_suggestions = sorted(
         Song.objects.exclude(lyricist__isnull=True)
         .exclude(lyricist__exact="")
@@ -1216,7 +1212,7 @@ def bulk_add_view(request):
             "mode": mode,
             "done": done,
             "existing_songs": existing_songs,
-            "existing_titles_json": existing_titles_json,  # ★追加
+            "existing_titles_json": existing_titles_json,
             "lyricist_suggestions": lyricist_suggestions,
             "composer_suggestions": composer_suggestions,
             "year_suggestions": year_suggestions,
@@ -1224,16 +1220,6 @@ def bulk_add_view(request):
         if error:
             ctx["error"] = error
         return render(request, "songs/bulk_add.html", ctx)
-
-
-    def _parse_year(raw):
-        raw = (raw or "").strip()
-        if not raw:
-            return None
-        try:
-            return int(raw)
-        except ValueError:
-            return None
 
     if request.method == "POST":
         user = request.user
@@ -1258,69 +1244,34 @@ def bulk_add_view(request):
                     region = MusicRegion.objects.get(id=region_id)
                 except MusicRegion.DoesNotExist:
                     return render_form("選択された地域が存在しません。")
+                # Artist の一意制約は (name, region) なので、検索条件にも region を含める
                 artist, _ = Artist.objects.get_or_create(
-                    name=new_artist_name, defaults={"region": region}
+                    name=new_artist_name, region=region
                 )
             else:
                 return render_form("歌手を選択するか新規入力してください。")
 
-            # ★ 可変行対応：POSTキーから実在する行番号だけを抽出して回す
+            # 可変行対応：POSTキーから実在する行番号だけを抽出して回す
             indices = _extract_indices(request.POST, "song_title_")
             for i in indices:
                 title = request.POST.get(f"song_title_{i}", "").strip()
-                score = request.POST.get(f"song_score_{i}", "").strip()
-                is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
-                lyricist = request.POST.get(f"song_lyricist_{i}", "").strip()
-                composer = request.POST.get(f"song_composer_{i}", "").strip()
-                year_val = _parse_year(request.POST.get(f"song_year_{i}"))
                 if not title:
                     continue
 
-                song = Song.objects.filter(title=title, artist=artist).first()
-                if not song:
-                    try:
-                        song = Song.objects.create(
-                            title=title,
-                            artist=artist,
-                            is_cover=is_cover,
-                            lyricist=lyricist or None,
-                            composer=composer or None,
-                            year=year_val,
-                        )
-                    except IntegrityError:
-                        song = Song.objects.get(title=title, artist=artist)
-                        song.is_cover = is_cover
-                        if lyricist:
-                            song.lyricist = lyricist
-                        if composer:
-                            song.composer = composer
-                        if year_val is not None:
-                            song.year = year_val
-                        song.save()
-                else:
-                    song.is_cover = is_cover
-                    if lyricist:
-                        song.lyricist = lyricist
-                    if composer:
-                        song.composer = composer
-                    if year_val is not None:
-                        song.year = year_val
-                    song.save()
-
-                if score:
-                    try:
-                        s = int(score)
-                        if 0 <= s <= 100:
-                            Rating.objects.update_or_create(
-                                user=user, song=song, defaults={"score": s}
-                            )
-                    except ValueError:
-                        pass
+                song = _upsert_song(
+                    artist,
+                    title,
+                    is_cover=request.POST.get(f"song_is_cover_{i}") == "on",
+                    lyricist=request.POST.get(f"song_lyricist_{i}", "").strip(),
+                    composer=request.POST.get(f"song_composer_{i}", "").strip(),
+                    year=_parse_year(request.POST.get(f"song_year_{i}")),
+                )
+                _save_bulk_score(user, song, request.POST.get(f"song_score_{i}"))
 
             return redirect("artist_songs", artist_id=artist.id)
 
         else:
-            # 複数歌手モード
+            # 複数歌手モード：行ごとに歌手が違う。歌手を決められない行は黙って飛ばす。
             touched = set()
             indices = _extract_indices(request.POST, "song_title_")
             for i in indices:
@@ -1328,11 +1279,6 @@ def bulk_add_view(request):
                 if not title:
                     continue
 
-                score_str = request.POST.get(f"song_score_{i}", "").strip()
-                is_cover = request.POST.get(f"song_is_cover_{i}") == "on"
-                lyricist = request.POST.get(f"song_lyricist_{i}", "").strip()
-                composer = request.POST.get(f"song_composer_{i}", "").strip()
-                year_val = _parse_year(request.POST.get(f"song_year_{i}"))
                 artist_id_i = request.POST.get(f"artist_id_{i}")
                 new_artist_name_i = request.POST.get(f"new_artist_name_{i}", "").strip()
                 region_id_i = request.POST.get(f"region_id_{i}")
@@ -1351,53 +1297,22 @@ def bulk_add_view(request):
                         region = MusicRegion.objects.get(id=region_id_i)
                     except MusicRegion.DoesNotExist:
                         continue
+                    # Artist の一意制約は (name, region) なので region も検索条件に含める
                     artist, _ = Artist.objects.get_or_create(
-                        name=new_artist_name_i, defaults={"region": region}
+                        name=new_artist_name_i, region=region
                     )
                 else:
                     continue
 
-                # 曲登録/更新
-                song = Song.objects.filter(title=title, artist=artist).first()
-                if not song:
-                    try:
-                        song = Song.objects.create(
-                            title=title,
-                            artist=artist,
-                            is_cover=is_cover,
-                            lyricist=lyricist or None,
-                            composer=composer or None,
-                            year=year_val,
-                        )
-                    except IntegrityError:
-                        song = Song.objects.get(title=title, artist=artist)
-                        song.is_cover = is_cover
-                        if lyricist:
-                            song.lyricist = lyricist
-                        if composer:
-                            song.composer = composer
-                        if year_val is not None:
-                            song.year = year_val
-                        song.save()
-                else:
-                    song.is_cover = is_cover
-                    if lyricist:
-                        song.lyricist = lyricist
-                    if composer:
-                        song.composer = composer
-                    if year_val is not None:
-                        song.year = year_val
-                    song.save()
-
-                if score_str:
-                    try:
-                        s = int(score_str)
-                        if 0 <= s <= 100:
-                            Rating.objects.update_or_create(
-                                user=user, song=song, defaults={"score": s}
-                            )
-                    except ValueError:
-                        pass
+                song = _upsert_song(
+                    artist,
+                    title,
+                    is_cover=request.POST.get(f"song_is_cover_{i}") == "on",
+                    lyricist=request.POST.get(f"song_lyricist_{i}", "").strip(),
+                    composer=request.POST.get(f"song_composer_{i}", "").strip(),
+                    year=_parse_year(request.POST.get(f"song_year_{i}")),
+                )
+                _save_bulk_score(user, song, request.POST.get(f"song_score_{i}"))
 
                 touched.add(artist.id)
 
@@ -1419,56 +1334,6 @@ def signup_view(request):
     else:
         form = UserCreationForm()
     return render(request, "registration/signup.html", {"form": form})
-
-
-@staff_member_required
-def missing_audio_files_view(request):
-    tag_set = set()
-
-    for root, dirs, files in os.walk(MUSIC_DIR):
-        for file in files:
-            if file.lower().endswith(".mp3"):
-                try:
-                    audio = EasyID3(os.path.join(root, file))
-                    artist = audio.get("artist", [""])[0].strip()
-                    title = audio.get("title", [""])[0].strip()
-                    if artist and title:
-                        tag_set.add((artist, title))
-                except Exception:
-                    continue
-
-    songs = Song.objects.select_related("artist").all()
-    missing_songs = []
-
-    for song in songs:
-        key = (song.artist.name.strip(), song.title.strip())
-        if key not in tag_set:
-            missing_songs.append(song)
-
-    # region.id → artist.name → song.title でソート
-    missing_songs = sorted(
-        missing_songs,
-        key=lambda s: (
-            s.artist.region.id if s.artist.region else 0,
-            s.artist.name,
-            s.title,
-        ),
-    )
-
-    # user=2の全Ratingを取得して辞書にする（キーはsong.id）
-    user_id = 2
-    ratings = Rating.objects.filter(user_id=user_id, song__in=missing_songs)
-    rating_dict = {r.song_id: r.score for r in ratings}
-
-    return render(
-        request,
-        "songs/missing_files.html",
-        {
-            "missing_songs": missing_songs,
-            "rating_dict": rating_dict,
-            "user_id": user_id,
-        },
-    )
 
 
 def kana_to_hiragana(s: str) -> str:
@@ -1716,40 +1581,67 @@ def artist_year_heatmap_view(request):
     )
 
 
+def _parse_json_body(request):
+    """
+    リクエストボディの JSON を dict として読む。
+    戻り値: (payload, error_response) — 失敗時は payload が None。
+    """
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None, JsonResponse({"error": "JSONが不正です"}, status=400)
+    if not isinstance(payload, dict):
+        return None, JsonResponse({"error": "JSONが不正です"}, status=400)
+    return payload, None
+
+
+def _resolve_heatmap_target_user(request, payload):
+    """
+    ヒートマップ更新APIの保存先ユーザーを決める。
+    user_id 未指定ならログインユーザー。他人を指定できるのは staff のみ。
+    戻り値: (target_user, error_response) — エラー時は target_user が None。
+    """
+    raw_user_id = payload.get("user_id")
+    if not raw_user_id:
+        return request.user, None
+
+    try:
+        user_id = int(raw_user_id)
+    except (TypeError, ValueError):
+        return None, JsonResponse({"error": "user_idが不正です"}, status=400)
+
+    if (not request.user.is_staff) and (user_id != request.user.id):
+        return None, JsonResponse({"error": "権限がありません"}, status=403)
+    return get_object_or_404(User, id=user_id), None
+
+
 @require_POST
 @login_required
 @transaction.atomic
 def artist_year_heatmap_bulk_save(request):
-    try:
-        payload = json.loads(request.body.decode("utf-8"))
-    except Exception:
-        return JsonResponse({"error": "JSONが不正です"}, status=400)
+    payload, error = _parse_json_body(request)
+    if error:
+        return error
 
     items = payload.get("items") or []
     if not isinstance(items, list):
         return JsonResponse({"error": "itemsが不正です"}, status=400)
 
-    user_id = payload.get("user_id")
-    if user_id:
-        if (not request.user.is_staff) and (int(user_id) != request.user.id):
-            return JsonResponse({"error": "権限がありません"}, status=403)
-        target_user = get_object_or_404(User, id=user_id)
-    else:
-        target_user = request.user
+    target_user, error = _resolve_heatmap_target_user(request, payload)
+    if error:
+        return error
 
+    # 入力を (artist_id, year, score) に正規化。score は 0〜4 にクランプし、
+    # 数値化できない行は捨てる（画面側の一括送信に壊れた行が混ざっても止めない）。
     cleaned = []
     for it in items:
         try:
             aid = int(it.get("artist_id"))
             year = int(it.get("year"))
             score = int(it.get("score"))
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             continue
-        if score < 0:
-            score = 0
-        if score > 4:
-            score = 4
-        cleaned.append((aid, year, score))
+        cleaned.append((aid, year, min(max(score, 0), 4)))
 
     if not cleaned:
         return JsonResponse({"success": True, "deleted": 0, "created": 0, "updated": 0})
@@ -1813,33 +1705,25 @@ def artist_year_heatmap_bulk_save(request):
 @login_required
 @transaction.atomic
 def artist_year_heatmap_range_set(request):
-    try:
-        payload = json.loads(request.body.decode("utf-8"))
-    except Exception:
-        return JsonResponse({"error": "JSONが不正です"}, status=400)
+    payload, error = _parse_json_body(request)
+    if error:
+        return error
 
     try:
         artist_id = int(payload.get("artist_id"))
         y_from = int(payload.get("from"))
         y_to = int(payload.get("to"))
         score = int(payload.get("score"))
-    except Exception:
+    except (TypeError, ValueError):
         return JsonResponse({"error": "パラメータが不正です"}, status=400)
 
     if y_from > y_to:
         y_from, y_to = y_to, y_from
-    if score < 0:
-        score = 0
-    if score > 4:
-        score = 4
+    score = min(max(score, 0), 4)
 
-    user_id = payload.get("user_id")
-    if user_id:
-        if (not request.user.is_staff) and (int(user_id) != request.user.id):
-            return JsonResponse({"error": "権限がありません"}, status=403)
-        target_user = get_object_or_404(User, id=user_id)
-    else:
-        target_user = request.user
+    target_user, error = _resolve_heatmap_target_user(request, payload)
+    if error:
+        return error
 
     years = list(range(y_from, y_to + 1))
 
@@ -1886,27 +1770,27 @@ def artist_year_heatmap_range_set(request):
 @login_required
 @transaction.atomic
 def artist_year_heatmap_add_artist(request):
+    payload, error = _parse_json_body(request)
+    if error:
+        return error
+
     try:
-        payload = json.loads(request.body.decode("utf-8"))
         artist_id = int(payload.get("artist_id"))
-    except Exception:
+    except (TypeError, ValueError):
         return JsonResponse({"error": "パラメータが不正です"}, status=400)
 
-    user_id = payload.get("user_id")
-    if user_id:
-        if (not request.user.is_staff) and (int(user_id) != request.user.id):
-            return JsonResponse({"error": "権限がありません"}, status=403)
-        target_user = get_object_or_404(User, id=user_id)
-    else:
-        target_user = request.user
+    target_user, error = _resolve_heatmap_target_user(request, payload)
+    if error:
+        return error
 
     year = timezone.localdate().year
 
+    # 追加直後に行が消えないよう、初期値は 0 ではなく 1（score=0 は削除扱いのため）
     obj, created = ArtistYearPreference.objects.get_or_create(
         user=target_user,
         artist_id=artist_id,
         year=year,
-        defaults={"score": 1},  # ★ ここを1に
+        defaults={"score": 1},
     )
     if not created and obj.score == 0:
         obj.score = 1

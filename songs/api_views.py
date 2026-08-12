@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Artist, Song, Rating, Rating, MusicRegion
+from .models import Artist, Song, Rating, MusicRegion
 from .api_serializers import (
     ArtistSerializer,
     SongSerializer,
@@ -17,6 +17,11 @@ from .utils import normalize
 
 
 def find_song_loose_readonly(artist_name: str, title: str):
+    """
+    歌手名＋曲名から曲を探す（読み取り専用。format_* の補正は行わない）。
+    1) 正規化済みの format_name / format_title で厳密一致
+    2) 見つからなければ元の name / title の大文字小文字無視一致
+    """
     fn = normalize(artist_name)
     ft = normalize(title)
     qs = Song.objects.select_related("artist")
@@ -194,7 +199,11 @@ class SongsRatingExport(APIView):
 
 
 @api_view(["POST"])
-@permission_classes([permissions.AllowAny])  # 認証不要なら AllowAny に変えてOK
+# !!! 認証なしで誰でも呼べる書き込みAPI !!!
+# 本番URLは公開されているため、第三者が歌手・曲を無制限に作成できる。
+# 外部クライアント側にトークンを設定できるようになったら
+# permissions.IsAuthenticated に変更すること。
+@permission_classes([permissions.AllowAny])
 @transaction.atomic
 def create_song_with_artist(request):
     """
@@ -328,7 +337,12 @@ def create_song_with_artist(request):
 
 
 @api_view(["POST"])
-@permission_classes([permissions.AllowAny])  # 認証要件は他APIに合わせて調整可
+# !!! 認証なしで誰でも呼べる書き込みAPI !!!
+# しかも下記のとおり「未指定の項目は NULL で上書き」する全置換の仕様なので、
+# song_id さえ分かれば第三者が既存曲の作詞・作曲・年を消せてしまう。
+# 外部クライアント側にトークンを設定できるようになったら
+# permissions.IsAuthenticated に変更すること。
+@permission_classes([permissions.AllowAny])
 def update_song_credits(request):
     """
     POST /api/songs/update_credits
@@ -338,6 +352,9 @@ def update_song_credits(request):
       "composer": "...",   # 任意。未指定/空なら NULL で上書き
       "year": 1985         # 任意。未指定/空/不正値なら NULL で上書き
     }
+
+    注意: 部分更新ではなく全項目の置換。3項目すべてを毎回送ること。
+          （画面から1項目だけ直す用途には /update-credits/ を使う）
     成功時: 200
       { "song_id": 123, "lyricist": "...", "composer": "...", "year": 1985 }
     曲が見つからない場合: 404

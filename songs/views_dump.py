@@ -1,4 +1,13 @@
-import os, datetime, subprocess, shlex
+"""
+本番DBのテーブルを mysqldump でダンプし、ダウンロードさせるための管理用API。
+
+認証は settings.EXPORT_API_TOKEN との突き合わせのみ（Djangoのログインとは独立）。
+トークンは X-Export-Token ヘッダ / POST / GET のいずれかで渡す。
+"""
+
+import os
+import datetime
+import subprocess
 from django.conf import settings
 from django.http import (
     JsonResponse,
@@ -10,18 +19,24 @@ from django.http import (
 from django.views.decorators.http import require_POST, require_GET
 from django.views.decorators.csrf import csrf_exempt
 
-EXPORT_API_TOKEN = getattr(settings, "EXPORT_API_TOKEN", "put-a-long-random-token")
+EXPORT_API_TOKEN = getattr(settings, "EXPORT_API_TOKEN", "")
 DB = settings.DATABASES["default"]
 PA_DB_HOST = DB.get("HOST") or "127.0.0.1"
 PA_DB_PORT = str(DB.get("PORT") or "3306")
 PA_DB_NAME = DB.get("NAME")
 PA_DB_USER = DB.get("USER")
-PA_DB_PASS = DB.get("PASSWORD")  # ← ここは None の可能性もあるので後段で条件付き
+PA_DB_PASS = DB.get("PASSWORD")  # 未設定（None）なら -p を渡さず ~/.my.cnf に任せる
 
 DUMP_DIR = os.path.expanduser("~/dumps/music")
 
 
 def _auth(request):
+    """
+    共有トークンによる認証。
+    トークンが未設定（空）のときは常に不許可にして、事故で全公開になるのを防ぐ。
+    """
+    if not EXPORT_API_TOKEN:
+        return False
     tok = (
         request.headers.get("X-Export-Token")
         or request.POST.get("token")
@@ -31,9 +46,12 @@ def _auth(request):
 
 
 def _dump_one(table: str, outfile: str):
+    """1テーブルを「データのみ」でダンプして outfile に書き出す。"""
     os.makedirs(DUMP_DIR, exist_ok=True)
     cmd = [
         "mysqldump",
+        f"--host={PA_DB_HOST}",
+        f"--port={PA_DB_PORT}",
         "--single-transaction",
         "--quick",
         "--skip-lock-tables",
@@ -41,9 +59,14 @@ def _dump_one(table: str, outfile: str):
         "--set-gtid-purged=OFF",
         "--no-create-info",
         "--skip-triggers",
-        PA_DB_NAME,
-        table,
     ]
+    if PA_DB_USER:
+        cmd.append(f"--user={PA_DB_USER}")
+    if PA_DB_PASS:
+        # mysqldump は --password=... を要求する（-p と値の間に空白を入れられない）
+        cmd.append(f"--password={PA_DB_PASS}")
+    cmd += [PA_DB_NAME, table]
+
     with open(outfile, "wb") as f:
         subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.PIPE, timeout=600)
 

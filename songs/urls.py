@@ -12,7 +12,6 @@ from .views import (
     update_song_credits_view,
     bulk_add_view,
     signup_view,
-    missing_audio_files_view,
     artist_song_list_view,
     song_ranking_view,
     song_ranking_rows_view,
@@ -79,7 +78,6 @@ urlpatterns = [
         artist_year_heatmap_add_artist,
         name="artist_year_heatmap_add_artist",
     ),
-    path("missing-files/", missing_audio_files_view, name="missing_audio_files"),
     path(
         "login/",
         auth_views.LoginView.as_view(template_name="registration/login.html"),

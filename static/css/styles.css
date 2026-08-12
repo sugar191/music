@@ -371,6 +371,11 @@ select option {
         grid-template-columns: 1fr; /* 1列に */
     }
 
+    /* top_grid: プルダウンで選んだTOPのカードだけ表示 */
+    .artist-card.top-card-hidden {
+        display: none;
+    }
+
     .artist-ranking-grid {
         display: flex;
         flex-direction: column;
@@ -406,6 +411,9 @@ select option {
     }
     .mobile-only {
         display: inline-flex;
+    }
+    select.mobile-only {
+        display: inline-block;
     }
     /* artist_song_list: スマホ時に🎤スイッチで列を切り替え */
     .table-area[data-mobile-mode="score"] .karaoke-col {

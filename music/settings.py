@@ -30,6 +30,21 @@ DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "sugar191.pythonanywhere.com", "SotaroPC"]
 
+# --- CSRF / HTTPS -----------------------------------------------------------
+# 本番(PythonAnywhere)は前段でSSLを終端し、Djangoには HTTP として渡ってくる。
+# これを教えないと request.scheme が "http" のままになり、
+# ブラウザが送る Origin: https://... と食い違って POST が
+# 「CSRF検証に失敗したため、リクエストは中断されました」(400) になる。
+#
+# このヘッダは「信頼できるプロキシが必ず付け直す」前提でのみ安全なので、
+# 開発(DEBUG=True, 素のrunserver)では有効にしない。
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Django 4.0以降、POST時に Origin ヘッダがあればこの一覧と照合される。
+# スキーム込みで書く必要がある。
+CSRF_TRUSTED_ORIGINS = ["https://sugar191.pythonanywhere.com"]
+
 
 # Application definition
 
@@ -167,8 +182,14 @@ if DEBUG:
         },
     }
 
-LOGIN_REDIRECT_URL = "/ranking"  # ログイン後のリダイレクト先URL
-LOGOUT_REDIRECT_URL = "/login"  # ログアウト後のリダイレクト先
+# 末尾スラッシュは必須。省くと APPEND_SLASH による 301 が毎回挟まり、
+# しかもブラウザに恒久キャッシュされてURL変更時に厄介になる。
+LOGIN_URL = "/login/"  # @login_required の飛び先（既定の /accounts/login/ を上書き）
+LOGIN_REDIRECT_URL = "/ranking/"  # ログイン後のリダイレクト先URL
+LOGOUT_REDIRECT_URL = "/login/"  # ログアウト後のリダイレクト先
 
-EXPORT_API_TOKEN = "nrvtiugrgrhrfhsenglvrfhl3wv"
+# /api/dump/* を叩くための共有トークン。ソースに直書きせず .env で管理する。
+# 未設定なら空文字になり、views_dump 側で全リクエストを 401 にする。
+EXPORT_API_TOKEN = config("EXPORT_API_TOKEN", default="")
+
 RATING_CACHE_DIR = BASE_DIR / "exports"

@@ -11,6 +11,12 @@
             <option value="{% url 'composer_grid' %}" {% if kind == 'composer' %}selected{% endif %}>作曲</option>
             <option value="{% url 'year_grid' %}" {% if kind == 'year' %}selected{% endif %}>年</option>
         </select>
+        {# スマホのみ：表示するTOPを1つに絞るプルダウン（PCは全件表示のまま） #}
+        <select id="grid-top-select" class="mobile-only" onchange="filterTopCards(this.value)">
+            {% for label, items in top_lists %}
+                <option value="{{ label }}">{{ label|slice:"3:" }}</option>
+            {% endfor %}
+        </select>
         <form method="get">
             <select name="user" id="user" onchange="this.form.submit()">
                 {% for user in all_users %}
@@ -33,10 +39,33 @@
             const qs = params.toString();
             window.location.href = sel.value + (qs ? "?" + qs : "");
         }
+
+        // スマホ表示時のみ、選択したTOPのカード以外を隠す（CSS側で幅768px未満のみ有効）
+        function filterTopCards(label) {
+            document.querySelectorAll(".artist-grid .artist-card").forEach((card) => {
+                card.classList.toggle("top-card-hidden", card.dataset.topLabel !== label);
+            });
+            try {
+                localStorage.setItem("gridTopLabel", label);
+            } catch (e) {}
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const sel = document.getElementById("grid-top-select");
+            if (!sel) return;
+            let saved = null;
+            try {
+                saved = localStorage.getItem("gridTopLabel");
+            } catch (e) {}
+            if (saved && [...sel.options].some((o) => o.value === saved)) {
+                sel.value = saved;
+            }
+            filterTopCards(sel.value);
+        });
     </script>
     <div class="artist-grid">
         {% for label, items in top_lists %}
-            <div class="artist-card">
+            <div class="artist-card" data-top-label="{{ label }}">
                 <div class="artist-card-header">{{ label }}</div>
                 <table>
                     <tbody>

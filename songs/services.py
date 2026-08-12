@@ -10,7 +10,13 @@ _CREATOR_COLUMNS = {
 
 
 def _creator_filtered_cte(col, region_filter, is_numeric=False):
-    """作詞/作曲/年ランキングの共通CTE: 評価済・非カバー・対象カラム入力済の曲を抽出"""
+    """
+    作詞/作曲/年ランキングの共通CTE: 評価済・非カバー・対象カラム入力済の曲を抽出。
+
+    r.score IS NOT NULL は必須。Rating はカラオケ点数だけ登録される場合があり
+    （API の update_score が score=NULL の行を作る）、除外しないと
+    好み度が無い曲まで song_count に数えられて TOP{N} の成立条件が甘くなる。
+    """
     # 数値カラム（year）は <> '' のチェックを外す（型エラー回避）
     empty_check = "" if is_numeric else f"AND s.{col} <> ''"
     return f"""
@@ -31,6 +37,7 @@ def _creator_filtered_cte(col, region_filter, is_numeric=False):
             JOIN songs_song s ON r.song_id = s.id
             JOIN songs_artist a ON s.artist_id = a.id
             WHERE r.user_id = %s
+              AND r.score IS NOT NULL
               AND s.is_cover = 0
               AND s.{col} IS NOT NULL
               {empty_check}
@@ -191,7 +198,11 @@ def call_my_procedure(procname, *args):
 
 
 def _artist_filtered_cte(region_filter):
-    """歌手ランキング用CTE: ユーザの評価済み非カバー曲＋歌手単位の曲数を計算"""
+    """
+    歌手ランキング用CTE: ユーザの評価済み非カバー曲＋歌手単位の曲数を計算。
+
+    r.score IS NOT NULL については _creator_filtered_cte のコメントを参照。
+    """
     return f"""
         WITH filtered AS (
             SELECT
@@ -209,6 +220,7 @@ def _artist_filtered_cte(region_filter):
             JOIN songs_song s ON r.song_id = s.id
             JOIN songs_artist a ON s.artist_id = a.id
             WHERE r.user_id = %s
+              AND r.score IS NOT NULL
               AND s.is_cover = 0
               {region_filter}
         ),
@@ -302,6 +314,8 @@ def call_artist_song_top_n(user_id, top_n, region_id):
 def call_artist_top_n(user_id, top_n, region_id):
     """
     歌手別TOP（歌手集計モード）。歌手ごとに合計点と順位を返す。
+    （現在は call_artist_top_n_multi に置き換えられて未使用。単一 top_n だけ
+      欲しいときの参照実装として残してある）
     歌手は「ユーザがその歌手の曲を top_n 曲以上評価済み」に限定。
     戻り値: 歌手単位のdictリスト
       {artist_id, artist_name, region_id, total_score, artist_rank}
@@ -574,6 +588,7 @@ def count_song_ranking(user_id, region_id):
     """
     全曲ランキングの総件数（「もっと見る」の残件数表示・打ち切り判定用）。
     call_song_ranking と同じ抽出条件で COUNT だけを取る軽量クエリ。
+    ※ 条件を変えたら call_song_ranking 側も必ず合わせること。
     """
     region_filter = ""
     params = [user_id]
@@ -587,6 +602,7 @@ def count_song_ranking(user_id, region_id):
         JOIN songs_song s ON r.song_id = s.id
         JOIN songs_artist a ON s.artist_id = a.id
         WHERE r.user_id = %s
+          AND r.score IS NOT NULL
           AND s.is_cover = 0
           {region_filter}
     """
@@ -600,7 +616,7 @@ def call_song_ranking(user_id, region_id, offset=0, limit=None):
     """
     全曲ランキング（旧 rank_view 置き換え）。
     region_id 指定時はその地域内のランキング、未指定時は全体ランキング。
-    is_cover = 0 の曲のみ対象。
+    is_cover = 0 かつ好み度が入力済み（score IS NOT NULL）の曲のみ対象。
     user_id を CTE 内で先に絞り込むため、ウィンドウ関数の対象行数を最小化できる。
 
     limit を指定すると display_order 順の一部だけを返す（「もっと見る」用）。
@@ -638,6 +654,7 @@ def call_song_ranking(user_id, region_id, offset=0, limit=None):
             JOIN songs_song s ON r.song_id = s.id
             JOIN songs_artist a ON s.artist_id = a.id
             WHERE r.user_id = %s
+              AND r.score IS NOT NULL
               AND s.is_cover = 0
               {region_filter}
         )
