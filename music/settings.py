@@ -22,10 +22,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-yy1#pyccqmn1386)-rgm3!sz2&l&1u8=4_zkbhn*gz1tb0i*5&"
+SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# .env で切り替える。書き忘れた場合は安全側（False）に倒れる。
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "sugar191.pythonanywhere.com", "SotaroPC"]
 
@@ -56,6 +57,8 @@ REST_FRAMEWORK = {
 }
 
 MIDDLEWARE = [
+    # レスポンス本文を書き換える他のミドルウェアより先に置く必要がある
+    "django.middleware.gzip.GZipMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -151,6 +154,18 @@ STATICFILES_DIRS = [
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000
+
+# 開発時のみ：実行されたSQLと所要時間をコンソールに出す（遅い画面の切り分け用）。
+# 不要になったらこのブロックごと削除してよい。
+if DEBUG:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "handlers": {"console": {"class": "logging.StreamHandler"}},
+        "loggers": {
+            "django.db.backends": {"handlers": ["console"], "level": "DEBUG"},
+        },
+    }
 
 LOGIN_REDIRECT_URL = "/ranking"  # ログイン後のリダイレクト先URL
 LOGOUT_REDIRECT_URL = "/login"  # ログアウト後のリダイレクト先

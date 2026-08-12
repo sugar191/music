@@ -25,9 +25,7 @@
                             <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
                         </td>
                         <td class="pc-cell">
-                            {% with form=rating_forms|get_item:song.id %}
-                                <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
-                            {% endwith %}
+                            <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ song.user_score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
                         </td>
                         <td class="count-cell pc-cell">
                             <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>カバー曲
@@ -38,9 +36,7 @@
                         </td>
                         <td class="count-cell mobile-cell">
                             <div>
-                                {% with form=rating_forms|get_item:song.id %}
-                                    <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
-                                {% endwith %}
+                                <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ song.user_score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
                             </div>
                             <div>
                                 <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>カバー

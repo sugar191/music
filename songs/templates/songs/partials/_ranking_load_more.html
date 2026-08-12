@@ -1,0 +1,74 @@
+{% comment %}
+ランキング系4画面（歌手別/作詞別/作曲別/年別TOP）共通の「もっと見る」。
+先に親カードを追加し、使い切ったら「その他」の行を追加する。
+必要なコンテキスト:
+  kind: 'artist'|'lyricist'|'composer'|'year'
+  parent_offset / others_offset: 次に読み込む位置
+  load_more_label: ボタン文言（空なら続きなし）
+{% endcomment %}
+<style>
+    .load-more-area { text-align:center; margin:16px 0 32px; }
+    .load-more-btn { padding:10px 24px; font-size:1rem; cursor:pointer; border:1px solid #999; border-radius:6px; background:#f5f5f5; }
+    .load-more-btn:disabled { opacity:.5; cursor:default; }
+    .load-more-status { margin-top:8px; color:#666; font-size:.9rem; }
+</style>
+<div class="load-more-area">
+    <button type="button" id="loadMoreBtn" class="load-more-btn"
+            data-kind="{{ kind }}"
+            data-parent-offset="{{ parent_offset }}"
+            data-others-offset="{{ others_offset }}"
+            {% if not load_more_label %}hidden{% endif %}>{{ load_more_label }}</button>
+    <div id="loadMoreStatus" class="load-more-status" hidden>読み込み中…</div>
+</div>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const btn = document.getElementById("loadMoreBtn");
+        const status = document.getElementById("loadMoreStatus");
+        const grid = document.getElementById("ranking-grid");
+        const othersContainer = document.getElementById("others-container");
+        const othersBody = document.getElementById("others-body");
+
+        if (!btn) return;
+
+        btn.addEventListener("click", function () {
+            const params = new URLSearchParams(window.location.search);
+            params.set("kind", btn.dataset.kind);
+            params.set("parent_offset", btn.dataset.parentOffset);
+            params.set("others_offset", btn.dataset.othersOffset);
+
+            btn.disabled = true;
+            status.hidden = false;
+
+            fetch("{% url 'ranking_more' %}?" + params.toString(), {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                return response.json();
+            })
+            .then(data => {
+                if (data.parents_html) {
+                    grid.insertAdjacentHTML("beforeend", data.parents_html);
+                }
+                if (data.others_html) {
+                    othersContainer.hidden = false;
+                    othersBody.insertAdjacentHTML("beforeend", data.others_html);
+                }
+                btn.dataset.parentOffset = data.parent_offset;
+                btn.dataset.othersOffset = data.others_offset;
+                btn.textContent = data.load_more_label;
+                if (!data.load_more_label) {
+                    btn.hidden = true;
+                }
+            })
+            .catch(error => {
+                alert("読み込みに失敗しました");
+                console.error(error);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                status.hidden = true;
+            });
+        });
+    });
+</script>

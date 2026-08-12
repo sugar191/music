@@ -1,0 +1,26 @@
+{% comment %}
+曲タイトル＋メタ情報セル（YouTubeリンク + 必要に応じて 歌手/作詞/作曲/年 を縦積み）
+必要なコンテキスト:
+  song: {song_id, song_title, artist_id, artist_name, lyricist, composer, year, ...}
+  show_artist / show_lyricist / show_composer / show_year: それぞれ表示有無のbool
+{% endcomment %}
+{% load format_filters %}
+<div>
+    <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">
+        {{ song.song_title }}
+    </a>
+</div>
+{% if show_artist %}
+    <div class="song-meta">
+        <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
+    </div>
+{% endif %}
+{% if show_lyricist and song.lyricist %}
+    <div class="song-meta">作詞: <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a></div>
+{% endif %}
+{% if show_composer and song.composer %}
+    <div class="song-meta">作曲: <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a></div>
+{% endif %}
+{% if show_year and song.year %}
+    <div class="song-meta"><a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year|year_with_suffix }}</a></div>
+{% endif %}

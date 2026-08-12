@@ -1,0 +1,11 @@
+{% comment %}
+ランキングのメイングリッド（親 > 曲ネスト）
+必要なコンテキスト:
+  rankings: [{parent_rank, parent_name, parent_link, total_score, songs:[...]}, ...]
+  show_artist / show_lyricist / show_composer / show_year: 各曲のメタ表示制御（_song_title_cell.html 用）
+  is_own_page
+繰り返し部分は _ranking_cards.html にあり、「もっと見る」の追加読み込みと共用している。
+{% endcomment %}
+<div class="artist-grid" id="ranking-grid">
+    {% include "songs/partials/_ranking_cards.html" %}
+</div>

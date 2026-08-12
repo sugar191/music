@@ -26,20 +26,73 @@
     </div>
     <div class="table-area">
         <table>
-            <tbody>
+            <tbody id="artist-rows">
                 <tr>
                     <th>歌手名</th>
                     <th>採点</th>
                     <th>曲数</th>
                 </tr>
-                {% for artist in artists %}
-                    <tr>
-                        <td><a href="{% url 'artist_songs' artist.id %}">{{ artist.name }}</a></td>
-                        <td class="count-cell">{{ artist.rating_count }}</td>
-                        <td class="count-cell"><a href="{% url 'bulk_add_songs' %}?artist_id={{ artist.id }}">{{ artist.song_count }}</a></td>
-                    </tr>
-                {% endfor %}
+                {% include "songs/partials/_artist_search_rows.html" %}
             </tbody>
         </table>
     </div>
+    <div class="load-more-area">
+        <button type="button" id="loadMoreBtn" class="load-more-btn"
+                data-offset="{{ loaded_count }}"
+                {% if not remaining_count %}hidden{% endif %}>
+            もっと見る（残り <span id="remainingCount">{{ remaining_count }}</span> 件）
+        </button>
+        <div id="loadMoreStatus" class="load-more-status" hidden>読み込み中…</div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<style>
+    .load-more-area { text-align:center; margin:16px 0 32px; }
+    .load-more-btn { padding:10px 24px; font-size:1rem; cursor:pointer; border:1px solid #999; border-radius:6px; background:#f5f5f5; }
+    .load-more-btn:disabled { opacity:.5; cursor:default; }
+    .load-more-status { margin-top:8px; color:#666; font-size:.9rem; }
+</style>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const btn = document.getElementById("loadMoreBtn");
+        const status = document.getElementById("loadMoreStatus");
+        const tbody = document.getElementById("artist-rows");
+        const remaining = document.getElementById("remainingCount");
+
+        if (!btn) return;
+
+        btn.addEventListener("click", function () {
+            // 地域・採点・検索文字の絞り込みは現在のURLパラメータをそのまま引き継ぐ
+            const params = new URLSearchParams(window.location.search);
+            params.set("offset", btn.dataset.offset);
+
+            btn.disabled = true;
+            status.hidden = false;
+
+            fetch("{% url 'artist_search_rows' %}?" + params.toString(), {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                return response.json();
+            })
+            .then(data => {
+                tbody.insertAdjacentHTML("beforeend", data.html);
+                btn.dataset.offset = data.loaded_count;
+                remaining.textContent = data.remaining_count;
+                if (data.remaining_count <= 0) btn.hidden = true;
+            })
+            .catch(error => {
+                alert("読み込みに失敗しました");
+                console.error(error);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                status.hidden = true;
+            });
+        });
+    });
+</script>
 {% endblock %}

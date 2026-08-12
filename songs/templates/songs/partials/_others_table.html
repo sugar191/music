@@ -1,0 +1,28 @@
+{% comment %}
+「その他」テーブル
+必要なコンテキスト:
+  insufficient_songs: 曲リスト
+  show_artist / show_lyricist / show_composer / show_year: 各曲のメタ表示制御
+  show_creator_col: True なら creator列（作詞者名/作曲者名/年）をPC表示で出す
+  creator_type: 'lyricist'|'composer'|'year' （show_creator_col=True のとき必要）
+  is_own_page
+  has_others: 「その他」が1件でも存在するか（0件なら枠ごと隠す）
+繰り返し部分は _others_rows.html にあり、「もっと見る」の追加読み込みと共用している。
+{% endcomment %}
+<div class="others-table-container" id="others-container"{% if not has_others %} hidden{% endif %}>
+    <div class="artist-card-header">その他</div>
+    <table border="1" cellspacing="0" cellpadding="5">
+        <thead class="pc-display">
+            <th>順</th>
+            <th>歌手</th>
+            <th>曲名</th>
+            <th>作詞</th>
+            <th>作曲</th>
+            <th>年</th>
+            <th>採点</th>
+        </thead>
+        <tbody id="others-body">
+            {% include "songs/partials/_others_rows.html" %}
+        </tbody>
+    </table>
+</div>

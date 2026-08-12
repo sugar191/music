@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% load get_item %}
 {% load static %}
+{% load format_filters %}
 {% block title %}全曲TOP{% endblock %}
 {% block content %}
 <!-- ユーザー選択プルダウン -->
@@ -8,6 +9,10 @@
         .karaoke-switch { display:inline-flex; align-items:center; gap:4px; margin-left:8px; cursor:pointer; user-select:none; }
         .karaoke-switch input { margin:0; }
         .karaoke-switch.on { background:#e6f0ff; border-radius:4px; padding:2px 6px; }
+        .load-more-area { text-align:center; margin:16px 0 32px; }
+        .load-more-btn { padding:10px 24px; font-size:1rem; cursor:pointer; border:1px solid #999; border-radius:6px; background:#f5f5f5; }
+        .load-more-btn:disabled { opacity:.5; cursor:default; }
+        .load-more-status { margin-top:8px; color:#666; font-size:.9rem; }
     </style>
     <div class="top-bar">
         <form method="get" action="{% url 'song_ranking' %}">
@@ -42,61 +47,18 @@
                 <th>点数</th>
                 <th>🎤</th>
             </thead>
-            <tbody>
-                {% for song in songs %}
-                    <tr>
-                        <td class="count-cell">{{ song.display_rank }}</td>
-                        <td class="pc-cell">
-                            <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
-                        </td>
-                        <td class="pc-cell">
-                            <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
-                        </td>
-                        <td class="mobile-cell">
-                            <div><a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a></div>
-                            <div><a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a></div>
-                        </td>
-                        <td class="pc-cell">
-                            {% if song.lyricist %}
-                                <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a>
-                            {% endif %}
-                            </td>
-                        <td class="pc-cell">
-                            {% if song.composer %}
-                                <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a>
-                            {% endif %}
-                        </td>
-                        <td class="year-cell pc-cell">
-                            {% if song.year %}
-                                <a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year }}</a>
-                            {% endif %}
-                        </td>
-                        <td class="score-cell">
-                            {% if song.score %}
-                                {% if is_own_page %}
-                                    <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}"{% if karaoke_mode %} data-karaoke="1"{% endif %}>
-                                        {{ song.score }}
-                                    </span>
-                                {% else %}
-                                    {{ song.score }}
-                                {% endif %}
-                            {% endif %}
-                        </td>
-                        <td class="score-cell pc-cell">
-                            {% if song.karaoke_score %}
-                                {% if is_own_page %}
-                                    <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.karaoke_score }}" data-karaoke="1">
-                                        {{ song.karaoke_score }}
-                                    </span>
-                                {% else %}
-                                    {{ song.karaoke_score }}
-                                {% endif %}
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endfor %}
+            <tbody id="ranking-body">
+                {% include "songs/partials/_song_ranking_rows.html" %}
             </tbody>
         </table>
+    </div>
+    <div class="load-more-area">
+        <button type="button" id="loadMoreBtn" class="load-more-btn"
+                data-offset="{{ loaded_count }}"
+                {% if not remaining_count %}hidden{% endif %}>
+            もっと見る（残り <span id="remainingCount">{{ remaining_count }}</span> 件）
+        </button>
+        <div id="loadMoreStatus" class="load-more-status" hidden>読み込み中…</div>
     </div>
     <!-- モーダル -->
     <div id="scoreModal" class="modal" style="display:none;">
@@ -121,21 +83,61 @@
         let currentSongId = null;
         let currentKaraoke = false;
 
-        document.querySelectorAll(".editable-score").forEach(span => {
-            span.addEventListener("click", function () {
-                currentSongId = this.dataset.songId;
-                currentKaraoke = this.dataset.karaoke === "1";
-                scoreInput.value = this.dataset.currentScore;
+        // 「もっと見る」で後から追加された行にも効くよう、tbody へのイベント委譲にする
+        const rankingBody = document.getElementById("ranking-body");
+        rankingBody.addEventListener("click", function (e) {
+            const span = e.target.closest(".editable-score");
+            if (!span || !rankingBody.contains(span)) return;
 
-                if (currentKaraoke) {
-                    scoreInput.step = "0.001";
-                    if (modalTitle) modalTitle.textContent = "🎤採点を入力";
-                } else {
-                    scoreInput.step = "1";
-                    if (modalTitle) modalTitle.textContent = "点数を入力";
+            currentSongId = span.dataset.songId;
+            currentKaraoke = span.dataset.karaoke === "1";
+            scoreInput.value = span.dataset.currentScore;
+
+            if (currentKaraoke) {
+                scoreInput.step = "0.001";
+                if (modalTitle) modalTitle.textContent = "🎤採点を入力";
+            } else {
+                scoreInput.step = "1";
+                if (modalTitle) modalTitle.textContent = "点数を入力";
+            }
+
+            modal.style.display = "block";
+        });
+
+        // 「もっと見る」：続きの行を取得して tbody に追記する
+        const loadMoreBtn = document.getElementById("loadMoreBtn");
+        const loadMoreStatus = document.getElementById("loadMoreStatus");
+        const remainingCount = document.getElementById("remainingCount");
+
+        loadMoreBtn.addEventListener("click", function () {
+            const params = new URLSearchParams(window.location.search);
+            params.set("offset", loadMoreBtn.dataset.offset);
+
+            loadMoreBtn.disabled = true;
+            loadMoreStatus.hidden = false;
+
+            fetch("{% url 'song_ranking_rows' %}?" + params.toString(), {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                return response.json();
+            })
+            .then(data => {
+                rankingBody.insertAdjacentHTML("beforeend", data.html);
+                loadMoreBtn.dataset.offset = data.loaded_count;
+                remainingCount.textContent = data.remaining_count;
+                if (data.remaining_count <= 0) {
+                    loadMoreBtn.hidden = true;
                 }
-
-                modal.style.display = "block";
+            })
+            .catch(error => {
+                alert("読み込みに失敗しました");
+                console.error(error);
+            })
+            .finally(() => {
+                loadMoreBtn.disabled = false;
+                loadMoreStatus.hidden = true;
             });
         });
 

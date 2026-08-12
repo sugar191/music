@@ -1,0 +1,12 @@
+{% comment %}
+検索結果の行部分。初回描画と「もっと見る」の追加読み込みで共用する。
+必要なコンテキスト:
+  artists: [{id, name, song_count, rating_count}, ...]
+{% endcomment %}
+{% for artist in artists %}
+    <tr>
+        <td><a href="{% url 'artist_songs' artist.id %}">{{ artist.name }}</a></td>
+        <td class="count-cell">{{ artist.rating_count }}</td>
+        <td class="count-cell"><a href="{% url 'bulk_add_songs' %}?artist_id={{ artist.id }}">{{ artist.song_count }}</a></td>
+    </tr>
+{% endfor %}

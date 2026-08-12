@@ -1,0 +1,44 @@
+{% comment %}
+ランキングの親カード繰り返し部分。初回描画と「もっと見る」の追加読み込みで共用する。
+必要なコンテキスト:
+  rankings: [{parent_rank, parent_name, parent_link, total_score, songs:[...]}, ...]
+  show_artist / show_lyricist / show_composer / show_year
+  is_own_page
+{% endcomment %}
+{% load format_filters %}
+{% for row in rankings %}
+    <div class="artist-card">
+        <table>
+            <thead>
+                <th class="count-cell">{{ row.parent_rank }}</th>
+                <th>
+                    {% if row.parent_link %}
+                        <a href="{{ row.parent_link }}">{% if show_year %}{{ row.parent_name }}{% else %}{{ row.parent_name|year_with_suffix }}{% endif %}</a>
+                    {% else %}
+                        {{ row.parent_name }}
+                    {% endif %}
+                </th>
+                <th class="score-cell">{{ row.total_score|floatformat:0 }}</th>
+            </thead>
+            <tbody>
+                {% for song in row.songs %}
+                <tr>
+                    <td class="count-cell">{{ song.row_rank }}</td>
+                    <td>
+                        {% include "songs/partials/_song_title_cell.html" %}
+                    </td>
+                    <td class="score-cell">
+                        {% if is_own_page %}
+                            <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}">
+                                {{ song.score }}
+                            </span>
+                        {% else %}
+                            {{ song.score }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endfor %}

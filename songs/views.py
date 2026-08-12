@@ -10,7 +10,6 @@ from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import (
-    F,
     Q,
     OuterRef,
     Subquery,
@@ -22,6 +21,9 @@ from django.db.models import (
 from django.db.models.functions import Coalesce, Lower
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
+from django.template.loader import render_to_string
+from django.urls import reverse
+from urllib.parse import urlencode
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
@@ -34,14 +36,16 @@ from .models import (
     ArtistYearPreference,
     UserProfile,
 )
-from .forms import InlineRatingForm
 from .services import (
+    TOP_NS,
     call_artist_song_top_n,
     call_artist_insufficient_songs,
-    call_artist_top_n,
+    call_artist_top_n_multi,
     call_creator_song_top_n,
     call_creator_insufficient_songs,
+    call_creator_top_n_multi,
     call_song_ranking,
+    count_song_ranking,
 )
 
 CREATOR_TYPE_LABELS = {
@@ -53,6 +57,151 @@ CREATOR_TYPE_LABELS = {
 MUSIC_DIR = r"C:\Users\pawab\Music"
 
 
+# ランキング系4画面（歌手別/作詞別/作曲別/年別TOP）の分割表示設定。
+# 全件を一度に返すとHTMLが数MBになるため、親カード→その他の順に少しずつ追加する。
+RANKING_PARENT_PAGE_SIZE = 20
+RANKING_OTHERS_PAGE_SIZE = 200
+
+# 「もっと見る」の残件数表示に使う親の単位ラベル
+RANKING_PARENT_LABELS = {
+    "artist": "歌手",
+    "lyricist": "作詞",
+    "composer": "作曲",
+    "year": "年",
+}
+
+
+def _resolve_ranking_params(request):
+    """ランキング系4画面の共通パラメータ解決（region_id / selected_user / top_n）"""
+    if "region_id" not in request.GET:
+        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
+        region_id = "1"
+    else:
+        region_id = request.GET.get("region_id")
+        if region_id == "":
+            region_id = None
+
+    selected_user_id = request.GET.get("user")
+    selected_user = (
+        get_object_or_404(User, id=selected_user_id)
+        if selected_user_id
+        else request.user
+    )
+
+    try:
+        top_n = int(request.GET.get("top_n", 5))
+    except ValueError:
+        top_n = 5
+
+    return region_id, selected_user, top_n
+
+
+def _ranking_dataset(kind, user_id, top_n, region_id):
+    """
+    ランキング系4画面のデータを共通形式で組み立てる。
+    kind: 'artist' | 'lyricist' | 'composer' | 'year'
+    戻り値: (rankings, insufficient_songs)
+      rankings: [{parent_rank, parent_name, parent_link, total_score, songs:[...]}, ...]
+    """
+    if kind == "artist":
+        top_n_data = call_artist_song_top_n(user_id, top_n, region_id)
+        insufficient_data = call_artist_insufficient_songs(user_id, top_n, region_id)
+
+        # artistごとに曲をグルーピング
+        grouped = defaultdict(list)
+        for row in top_n_data:
+            key = (
+                row["artist_rank"],
+                row["artist_id"],
+                row["artist_name"],
+                row["total_score"],
+            )
+            # song側に共通キー row_rank を付与（テンプレートで kind 非依存に扱うため）
+            row["row_rank"] = row.get("rank_artist")
+            grouped[key].append(row)
+
+        # ソートしてリスト化
+        sorted_parents = sorted(grouped.items(), key=lambda x: x[0][0])
+
+        # テンプレート共通形式（parent_rank/parent_name/parent_link）に正規化
+        rankings = []
+        for key, songs in sorted_parents:
+            artist_rank, artist_id, artist_name, total_score = key
+            rankings.append(
+                {
+                    "parent_rank": artist_rank,
+                    "parent_name": artist_name,
+                    "parent_link": reverse("artist_songs", args=[artist_id]),
+                    "total_score": total_score,
+                    "songs": songs,
+                }
+            )
+    else:
+        top_n_data = call_creator_song_top_n(user_id, top_n, region_id, kind)
+        insufficient_data = call_creator_insufficient_songs(
+            user_id, top_n, region_id, kind
+        )
+
+        # クリエイターごとに曲をグルーピング
+        grouped = defaultdict(list)
+        for row in top_n_data:
+            key = (row["creator_rank"], row["creator"], row["total_score"])
+            # song側に共通キー row_rank を付与
+            row["row_rank"] = row.get("rank_creator")
+            grouped[key].append(row)
+
+        sorted_parents = sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1] or ""))
+
+        # テンプレート共通形式（parent_rank/parent_name/parent_link）に正規化
+        creator_songs_url = reverse("creator_songs")
+        rankings = []
+        for key, songs in sorted_parents:
+            creator_rank, creator_name, total_score = key
+            qs = urlencode({"type": kind, "name": creator_name})
+            rankings.append(
+                {
+                    "parent_rank": creator_rank,
+                    "parent_name": creator_name,
+                    "parent_link": f"{creator_songs_url}?{qs}",
+                    "total_score": total_score,
+                    "songs": songs,
+                }
+            )
+
+    # その他テーブルの曲にも共通キー row_rank を付与
+    for s in insufficient_data:
+        s["row_rank"] = s.get("rank_within_insufficient")
+
+    return rankings, insufficient_data
+
+
+def _load_more_label(kind, remaining_parents, remaining_others):
+    """「もっと見る」の文言。続きがなければ空文字を返す。"""
+    if remaining_parents > 0:
+        return f"もっと見る（残り{RANKING_PARENT_LABELS[kind]} {remaining_parents} 件）"
+    if remaining_others > 0:
+        return f"もっと見る（その他 残り {remaining_others} 曲）"
+    return ""
+
+
+def _ranking_page_context(kind, rankings, insufficient_songs):
+    """初回描画ぶん（親カードの先頭ページのみ）と「もっと見る」の状態を返す。"""
+    parents = rankings[:RANKING_PARENT_PAGE_SIZE]
+    remaining_parents = len(rankings) - len(parents)
+    return {
+        "kind": kind,
+        "rankings": parents,
+        # 「その他」は親カードを使い切ってから読み込むため初回は空
+        "insufficient_songs": [],
+        "has_others": bool(insufficient_songs),
+        "parent_offset": len(parents),
+        "others_offset": 0,
+        "load_more_label": _load_more_label(
+            kind, remaining_parents, len(insufficient_songs)
+        ),
+    }
+
+
 # 歌手別TOP
 @login_required
 def ranking_view(request):
@@ -61,74 +210,24 @@ def ranking_view(request):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    # 入力したパラメータを取得
-    if "region_id" not in request.GET:
-        # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
-        region_id = "1"
-    else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
-    selected_user_id = request.GET.get("user")
-    selected_user = (
-        get_object_or_404(User, id=selected_user_id)
-        if selected_user_id
-        else request.user
-    )
-    try:
-        top_n = int(request.GET.get("top_n", 5))
-    except ValueError:
-        top_n = 5
+    region_id, selected_user, top_n = _resolve_ranking_params(request)
 
-    # 歌手別TOPを取得
-    top_n_data = call_artist_song_top_n(selected_user.id, top_n, region_id)
-    insufficient_data = call_artist_insufficient_songs(
-        selected_user.id, top_n, region_id
+    rankings, insufficient_data = _ranking_dataset(
+        "artist", selected_user.id, top_n, region_id
     )
 
-    # artistごとに曲をグルーピング
-    grouped = defaultdict(list)
-    for row in top_n_data:
-        key = (
-            row["artist_rank"],
-            row["artist_id"],
-            row["artist_name"],
-            row["total_score"],
-        )
-        grouped[key].append(row)
+    context = {
+        "ranking_options": ranking_options,
+        "regions": regions,
+        "all_users": users,
+        "top_n": top_n,
+        "region_id": region_id,
+        "selected_user": selected_user,
+        "is_own_page": selected_user == request.user,
+    }
+    context.update(_ranking_page_context("artist", rankings, insufficient_data))
 
-    # ソートしてリスト化
-    sorted_artists = sorted(grouped.items(), key=lambda x: x[0][0])
-
-    # 辞書リストに変換（テンプレートでわかりやすくアクセスできるように）
-    rankings = []
-    for key, songs in sorted_artists:
-        artist_rank, artist_id, artist_name, total_score = key
-        rankings.append(
-            {
-                "artist_rank": artist_rank,
-                "artist_id": artist_id,
-                "artist_name": artist_name,
-                "total_score": total_score,
-                "songs": songs,
-            }
-        )
-
-    return render(
-        request,
-        "songs/ranking.html",
-        {
-            "ranking_options": ranking_options,
-            "regions": regions,
-            "all_users": users,
-            "top_n": top_n,
-            "region_id": region_id,
-            "selected_user": selected_user,
-            "is_own_page": selected_user == request.user,
-            "rankings": rankings,
-            "insufficient_songs": insufficient_data,
-        },
-    )
+    return render(request, "songs/artist_ranking.html", context)
 
 
 # 歌手ランキング
@@ -152,25 +251,42 @@ def artist_list_view(request):
         else request.user
     )
 
-    top5 = call_artist_top_n(selected_user.id, 5, region_id)
-    top10 = call_artist_top_n(selected_user.id, 10, region_id)
-    top15 = call_artist_top_n(selected_user.id, 15, region_id)
-    top20 = call_artist_top_n(selected_user.id, 20, region_id)
-    #    other_artists = call_artist_insufficient(selected_user.id, 5, region_id)
+    # 4つの top_n を1クエリでまとめて取得し、共通形式
+    # (display_name/display_link/display_rank/total_score) に正規化する
+    rows = call_artist_top_n_multi(selected_user.id, region_id)
+
+    top_lists = []
+    for n in TOP_NS:
+        ranked = sorted(
+            (r for r in rows if r[f"rank_{n}"] is not None),
+            key=lambda r, n=n: r[f"order_{n}"],
+        )
+        top_lists.append(
+            (
+                f"TOP{n}",
+                [
+                    {
+                        "display_name": r["artist_name"],
+                        "display_link": reverse("artist_songs", args=[r["artist_id"]]),
+                        "display_rank": r[f"rank_{n}"],
+                        "total_score": r[f"total_{n}"],
+                    }
+                    for r in ranked
+                ],
+            )
+        )
 
     return render(
         request,
-        "songs/artist_list.html",
+        "songs/top_grid.html",
         {
             "regions": regions,
             "all_users": users,
             "region_id": region_id,
             "selected_user": selected_user,
-            "top5": top5,
-            "top10": top10,
-            "top15": top15,
-            "top20": top20,
-            #            "other_artists": other_artists,
+            "kind": "artist",
+            "kind_label": "歌手",
+            "top_lists": top_lists,
         },
     )
 
@@ -185,90 +301,134 @@ def creator_list_view(request, creator_type):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    if "region_id" not in request.GET:
-        region_id = "1"
+    region_id, selected_user, top_n = _resolve_ranking_params(request)
+
+    rankings, insufficient_data = _ranking_dataset(
+        creator_type, selected_user.id, top_n, region_id
+    )
+
+    template_map = {
+        "lyricist": "songs/lyricist_ranking.html",
+        "composer": "songs/composer_ranking.html",
+        "year": "songs/year_ranking.html",
+    }
+
+    context = {
+        "ranking_options": ranking_options,
+        "regions": regions,
+        "all_users": users,
+        "top_n": top_n,
+        "region_id": region_id,
+        "selected_user": selected_user,
+        "is_own_page": selected_user == request.user,
+        "creator_type": creator_type,
+        "creator_label": CREATOR_TYPE_LABELS[creator_type],
+    }
+    context.update(_ranking_page_context(creator_type, rankings, insufficient_data))
+
+    return render(request, template_map[creator_type], context)
+
+
+# 曲メタ情報の表示フラグ。各テンプレートの include 指定と一致させること。
+RANKING_KIND_FLAGS = {
+    "artist": {
+        "show_artist": False,
+        "show_lyricist": True,
+        "show_composer": True,
+        "show_year": True,
+    },
+    "lyricist": {
+        "show_artist": True,
+        "show_lyricist": False,
+        "show_composer": True,
+        "show_year": True,
+    },
+    "composer": {
+        "show_artist": True,
+        "show_lyricist": True,
+        "show_composer": False,
+        "show_year": True,
+    },
+    "year": {
+        "show_artist": True,
+        "show_lyricist": True,
+        "show_composer": True,
+        "show_year": False,
+    },
+}
+
+
+@login_required
+def ranking_more_view(request):
+    """
+    ランキング系4画面共通の「もっと見る」。
+    親カードが残っていれば親を、使い切っていれば「その他」の行を追加で返す。
+    """
+    kind = request.GET.get("kind", "artist")
+    if kind not in RANKING_KIND_FLAGS:
+        return JsonResponse({"error": "不正な kind です"}, status=400)
+
+    region_id, selected_user, top_n = _resolve_ranking_params(request)
+
+    def _offset(name):
+        try:
+            return max(int(request.GET.get(name, 0)), 0)
+        except ValueError:
+            return 0
+
+    parent_offset = _offset("parent_offset")
+    others_offset = _offset("others_offset")
+
+    rankings, insufficient_songs = _ranking_dataset(
+        kind, selected_user.id, top_n, region_id
+    )
+
+    parents = rankings[parent_offset : parent_offset + RANKING_PARENT_PAGE_SIZE]
+    if parents:
+        # 親カードが残っているうちは「その他」に進まない
+        others = []
     else:
-        region_id = request.GET.get("region_id")
-        if region_id == "":
-            region_id = None
+        others = insufficient_songs[
+            others_offset : others_offset + RANKING_OTHERS_PAGE_SIZE
+        ]
 
-    selected_user_id = request.GET.get("user")
-    selected_user = (
-        get_object_or_404(User, id=selected_user_id)
-        if selected_user_id
-        else request.user
-    )
+    parent_offset += len(parents)
+    others_offset += len(others)
 
-    try:
-        top_n = int(request.GET.get("top_n", 5))
-    except ValueError:
-        top_n = 5
+    is_own_page = selected_user == request.user
 
-    top_n_data = call_creator_song_top_n(
-        selected_user.id, top_n, region_id, creator_type
-    )
-    insufficient_data = call_creator_insufficient_songs(
-        selected_user.id, top_n, region_id, creator_type
-    )
-
-    # クリエイターごとに曲をグルーピング
-    grouped = defaultdict(list)
-    for row in top_n_data:
-        key = (row["creator_rank"], row["creator"], row["total_score"])
-        grouped[key].append(row)
-
-    sorted_creators = sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1] or ""))
-
-    rankings = []
-    for key, songs in sorted_creators:
-        creator_rank, creator_name, total_score = key
-        rankings.append(
-            {
-                "creator_rank": creator_rank,
-                "creator_name": creator_name,
-                "total_score": total_score,
-                "songs": songs,
-            }
+    parents_html = ""
+    if parents:
+        card_context = {"rankings": parents, "is_own_page": is_own_page}
+        card_context.update(RANKING_KIND_FLAGS[kind])
+        parents_html = render_to_string(
+            "songs/partials/_ranking_cards.html", card_context, request=request
         )
 
-    return render(
-        request,
-        "songs/creator_list.html",
+    others_html = ""
+    if others:
+        others_html = render_to_string(
+            "songs/partials/_others_rows.html",
+            {"insufficient_songs": others, "is_own_page": is_own_page},
+            request=request,
+        )
+
+    return JsonResponse(
         {
-            "ranking_options": ranking_options,
-            "regions": regions,
-            "all_users": users,
-            "top_n": top_n,
-            "region_id": region_id,
-            "selected_user": selected_user,
-            "is_own_page": selected_user == request.user,
-            "creator_type": creator_type,
-            "creator_label": CREATOR_TYPE_LABELS[creator_type],
-            "rankings": rankings,
-            "insufficient_songs": insufficient_data,
-        },
-    )
-
-
-def _dedupe_creators(song_rows):
-    """call_creator_song_top_n の曲単位行を、クリエイター単位に重複排除する。"""
-    seen = {}
-    for row in song_rows:
-        creator = row["creator"]
-        if creator in seen:
-            continue
-        seen[creator] = {
-            "creator_name": creator,
-            "creator_rank": row["creator_rank"],
-            "total_score": row["total_score"],
+            "parents_html": parents_html,
+            "others_html": others_html,
+            "parent_offset": parent_offset,
+            "others_offset": others_offset,
+            "load_more_label": _load_more_label(
+                kind,
+                len(rankings) - parent_offset,
+                len(insufficient_songs) - others_offset,
+            ),
         }
-    return sorted(
-        seen.values(),
-        key=lambda r: (r["creator_rank"], r["creator_name"] or ""),
     )
 
 
-# 作詞TOP / 作曲TOP（artist_list.html の作詞・作曲版：TOP5/10/15/20 グリッド）
+# 作詞TOP / 作曲TOP / 年TOP（artist_list と共通の top_grid.html を使用）
 @login_required
 def creator_grid_view(request, creator_type):
     if creator_type not in CREATOR_TYPE_LABELS:
@@ -291,30 +451,46 @@ def creator_grid_view(request, creator_type):
         else request.user
     )
 
-    top_lists = {}
-    for n in (5, 10, 15, 20):
-        rows = call_creator_song_top_n(selected_user.id, n, region_id, creator_type)
-        top_lists[f"top{n}"] = _dedupe_creators(rows)
+    # 4つの top_n を1クエリでまとめて取得し、共通形式
+    # (display_name/display_link/display_rank/total_score) に正規化する
+    creator_songs_url = reverse("creator_songs")
+    rows = call_creator_top_n_multi(selected_user.id, region_id, creator_type)
+
+    top_lists = []
+    for n in TOP_NS:
+        ranked = sorted(
+            (r for r in rows if r[f"rank_{n}"] is not None),
+            key=lambda r, n=n: (r[f"rank_{n}"], r["creator"] or ""),
+        )
+        items = []
+        for r in ranked:
+            qs = urlencode({"type": creator_type, "name": r["creator"]})
+            items.append(
+                {
+                    "display_name": r["creator"],
+                    "display_link": f"{creator_songs_url}?{qs}",
+                    "display_rank": r[f"rank_{n}"],
+                    "total_score": r[f"total_{n}"],
+                }
+            )
+        top_lists.append((f"TOP{n}", items))
 
     return render(
         request,
-        "songs/creator_grid.html",
+        "songs/top_grid.html",
         {
-            "creator_type": creator_type,
-            "creator_label": CREATOR_TYPE_LABELS[creator_type],
             "regions": regions,
             "all_users": users,
             "region_id": region_id,
             "selected_user": selected_user,
-            "top5": top_lists["top5"],
-            "top10": top_lists["top10"],
-            "top15": top_lists["top15"],
-            "top20": top_lists["top20"],
+            "kind": creator_type,
+            "kind_label": CREATOR_TYPE_LABELS[creator_type],
+            "top_lists": top_lists,
         },
     )
 
 
-# 作詞ランク / 作曲ランク（artist_rank_matrix.html の作詞・作曲版）
+# 作詞ランク / 作曲ランク / 年ランク（artist_rank_matrix と共通の rank_matrix.html を使用）
 @login_required
 def creator_matrix_view(request, creator_type):
     if creator_type not in CREATOR_TYPE_LABELS:
@@ -337,20 +513,24 @@ def creator_matrix_view(request, creator_type):
         else request.user
     )
 
-    Ns = [5, 10, 15, 20]
+    # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
+    creator_songs_url = reverse("creator_songs")
     rows_by_creator = {}
-    for n in Ns:
-        data = call_creator_song_top_n(selected_user.id, n, region_id, creator_type)
-        # クリエイター単位に重複排除して rank/score を集約
-        for r in data:
-            creator = r["creator"]
-            row = rows_by_creator.setdefault(
-                creator, {"creator_name": creator}
-            )
-            # 同じクリエイターは同じ creator_rank なので、初回のみ書き込み
-            if f"rank_{n}" not in row:
-                row[f"rank_{n}"] = r["creator_rank"]
-                row[f"score_{n}"] = r["total_score"]
+    for r in call_creator_top_n_multi(selected_user.id, region_id, creator_type):
+        if all(r[f"rank_{n}"] is None for n in TOP_NS):
+            # どの top_n の条件も満たさないクリエイターは従来どおり表示しない
+            continue
+        creator = r["creator"]
+        qs = urlencode({"type": creator_type, "name": creator})
+        row = {
+            "display_name": creator,
+            "display_link": f"{creator_songs_url}?{qs}",
+        }
+        for n in TOP_NS:
+            if r[f"rank_{n}"] is not None:
+                row[f"rank_{n}"] = r[f"rank_{n}"]
+                row[f"score_{n}"] = r[f"total_{n}"]
+        rows_by_creator[creator] = row
 
     BIG = 10**9
 
@@ -360,17 +540,17 @@ def creator_matrix_view(request, creator_type):
             row.get("rank_10", BIG),
             row.get("rank_15", BIG),
             row.get("rank_20", BIG),
-            row.get("creator_name", ""),
+            row.get("display_name", ""),
         )
 
     matrix_rows = sorted(rows_by_creator.values(), key=sort_key)
 
     return render(
         request,
-        "songs/creator_matrix.html",
+        "songs/rank_matrix.html",
         {
-            "creator_type": creator_type,
-            "creator_label": CREATOR_TYPE_LABELS[creator_type],
+            "kind": creator_type,
+            "kind_label": CREATOR_TYPE_LABELS[creator_type],
             "regions": regions,
             "all_users": users,
             "region_id": region_id,
@@ -434,25 +614,24 @@ def artist_rank_matrix_view(request):
         else request.user
     )
 
-    Ns = [5, 10, 15, 20]
-
-    # artist_id -> row(dict)
-    rows_by_artist = {}
-
-    for n in Ns:
-        data = call_artist_top_n(selected_user.id, n, region_id)
-        for r in data:
-            aid = r["artist_id"]
-            row = rows_by_artist.setdefault(
-                aid,
-                {
-                    "artist_id": aid,
-                    "artist_name": r["artist_name"],
-                    "region_id": r.get("region_id"),
-                },
-            )
-            row[f"rank_{n}"] = r["artist_rank"]
-            row[f"score_{n}"] = r["total_score"]  # ついでに合計点も使いたければ
+    # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
+    matrix_rows = []
+    for r in call_artist_top_n_multi(selected_user.id, region_id):
+        if all(r[f"rank_{n}"] is None for n in TOP_NS):
+            # どの top_n の条件も満たさない歌手は従来どおり表示しない
+            continue
+        aid = r["artist_id"]
+        row = {
+            "artist_id": aid,
+            "display_name": r["artist_name"],
+            "display_link": reverse("artist_songs", args=[aid]),
+            "region_id": r.get("region_id"),
+        }
+        for n in TOP_NS:
+            if r[f"rank_{n}"] is not None:
+                row[f"rank_{n}"] = r[f"rank_{n}"]
+                row[f"score_{n}"] = r[f"total_{n}"]
+        matrix_rows.append(row)
 
     # 並び順：20→15→10→5 の順位がある順に昇順
     BIG = 10**9
@@ -463,15 +642,17 @@ def artist_rank_matrix_view(request):
             row.get("rank_10", BIG),
             row.get("rank_15", BIG),
             row.get("rank_20", BIG),
-            row.get("artist_name", ""),
+            row.get("display_name", ""),
         )
 
-    matrix_rows = sorted(rows_by_artist.values(), key=sort_key)
+    matrix_rows.sort(key=sort_key)
 
     return render(
         request,
-        "songs/artist_rank_matrix.html",
+        "songs/rank_matrix.html",
         {
+            "kind": "artist",
+            "kind_label": "歌手",
             "regions": regions,
             "all_users": users,
             "region_id": region_id,
@@ -481,12 +662,12 @@ def artist_rank_matrix_view(request):
     )
 
 
-@login_required
-def song_ranking_view(request):
-    regions = MusicRegion.objects.all()
-    users = User.objects.all().order_by("username")
+# 全曲TOPの1回あたり表示件数。全件を一度に返すとHTMLが十数MBになるため分割する。
+SONG_RANKING_PAGE_SIZE = 200
 
-    # 入力したパラメータを取得
+
+def _resolve_song_ranking_params(request):
+    """全曲TOP系ビューの共通パラメータ解決（region_id / selected_user / karaoke_mode）"""
     if "region_id" not in request.GET:
         # region_id パラメータがまったくない場合の処理（例：初期値1を使う）
         region_id = "1"
@@ -503,45 +684,71 @@ def song_ranking_view(request):
     )
 
     karaoke_mode = request.GET.get("karaoke") == "1"
+    return region_id, selected_user, karaoke_mode
 
+
+def _karaoke_ranking(selected_user, region_id):
+    """カラオケ採点ランキング全件（同点は同順位、次は飛ばす）"""
+    rating_qs = Rating.objects.filter(
+        user=selected_user,
+        karaoke_score__isnull=False,
+    ).select_related("song", "song__artist")
+    if region_id:
+        rating_qs = rating_qs.filter(song__artist__region_id=region_id)
+    rating_qs = rating_qs.order_by("-karaoke_score", Lower("song__title"))
+
+    ranked = []
+    prev_score = object()  # 必ず最初は一致しないようにセンチネル
+    current_rank = 0
+    next_rank = 1
+    for r in rating_qs:
+        ks = r.karaoke_score
+        if ks != prev_score:
+            current_rank = next_rank
+        ranked.append(
+            {
+                "display_rank": current_rank,
+                "artist_id": r.song.artist_id,
+                "artist_name": r.song.artist.name,
+                "song_id": r.song_id,
+                "song_title": r.song.title,
+                "score": ks,
+            }
+        )
+        prev_score = ks
+        next_rank += 1
+    return ranked
+
+
+def _song_ranking_slice(selected_user, region_id, karaoke_mode, offset, limit):
+    """
+    全曲TOPの一部（offset から limit 件）と総件数を返す。
+    戻り値: (songs, total)
+    """
     if karaoke_mode:
-        # カラオケ採点ランキング: karaoke_score 降順 → タイトル昇順
-        rating_qs = Rating.objects.filter(
-            user=selected_user,
-            karaoke_score__isnull=False,
-        ).select_related("song", "song__artist")
-        if region_id:
-            rating_qs = rating_qs.filter(song__artist__region_id=region_id)
-        rating_qs = rating_qs.order_by("-karaoke_score", Lower("song__title"))
+        # カラオケ採点分は件数が少ないため全件組み立ててから切り出す
+        ranked = _karaoke_ranking(selected_user, region_id)
+        return ranked[offset : offset + limit], len(ranked)
 
-        # 同点は同順位、次は飛ばす
-        ranked = []
-        prev_score = object()  # 必ず最初は一致しないようにセンチネル
-        current_rank = 0
-        next_rank = 1
-        for r in rating_qs:
-            ks = r.karaoke_score
-            if ks != prev_score:
-                current_rank = next_rank
-            ranked.append(
-                {
-                    "display_rank": current_rank,
-                    "artist_id": r.song.artist_id,
-                    "artist_name": r.song.artist.name,
-                    "song_id": r.song_id,
-                    "song_title": r.song.title,
-                    "score": ks,
-                }
-            )
-            prev_score = ks
-            next_rank += 1
+    # CTE 版（services.call_song_ranking）に置き換え。
+    # 旧 rank_view は user_id でフィルタする前に全ユーザ分のウィンドウ計算を
+    # 走らせていたため、ここでは user_id を先に絞った CTE を使う。
+    songs = call_song_ranking(selected_user.id, region_id, offset=offset, limit=limit)
+    total = count_song_ranking(selected_user.id, region_id)
+    return songs, total
 
-        songs = ranked
-    else:
-        # CTE 版（services.call_song_ranking）に置き換え。
-        # 旧 rank_view は user_id でフィルタする前に全ユーザ分のウィンドウ計算を
-        # 走らせていたため、ここでは user_id を先に絞った CTE を使う。
-        songs = call_song_ranking(selected_user.id, region_id)
+
+@login_required
+def song_ranking_view(request):
+    regions = MusicRegion.objects.all()
+    users = User.objects.all().order_by("username")
+
+    region_id, selected_user, karaoke_mode = _resolve_song_ranking_params(request)
+
+    songs, total = _song_ranking_slice(
+        selected_user, region_id, karaoke_mode, 0, SONG_RANKING_PAGE_SIZE
+    )
+    loaded = len(songs)
 
     return render(
         request,
@@ -554,7 +761,45 @@ def song_ranking_view(request):
             "is_own_page": selected_user == request.user,
             "region_id": region_id,
             "karaoke_mode": karaoke_mode,
+            "loaded_count": loaded,
+            "total_count": total,
+            "remaining_count": max(total - loaded, 0),
+            "page_size": SONG_RANKING_PAGE_SIZE,
         },
+    )
+
+
+@login_required
+def song_ranking_rows_view(request):
+    """「もっと見る」用。続きの行をHTML断片として返す。"""
+    region_id, selected_user, karaoke_mode = _resolve_song_ranking_params(request)
+
+    try:
+        offset = max(int(request.GET.get("offset", 0)), 0)
+    except ValueError:
+        offset = 0
+
+    songs, total = _song_ranking_slice(
+        selected_user, region_id, karaoke_mode, offset, SONG_RANKING_PAGE_SIZE
+    )
+    loaded = offset + len(songs)
+
+    html = render_to_string(
+        "songs/partials/_song_ranking_rows.html",
+        {
+            "songs": songs,
+            "is_own_page": selected_user == request.user,
+            "karaoke_mode": karaoke_mode,
+        },
+        request=request,
+    )
+
+    return JsonResponse(
+        {
+            "html": html,
+            "loaded_count": loaded,
+            "remaining_count": max(total - loaded, 0),
+        }
     )
 
 
@@ -584,21 +829,13 @@ def song_list_view(request):
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
 
-    rating_forms = {}
-    for song in page_obj:
-        try:
-            rating = Rating.objects.get(user=request.user, song=song)
-        except Rating.DoesNotExist:
-            rating = None
-        form = InlineRatingForm(instance=rating, prefix=str(song.id))
-        rating_forms[song.id] = form
-
+    # 点数は user_score として annotate 済みなので、
+    # テンプレートに渡すためだけのフォーム生成は行わない
     return render(
         request,
         "songs/song_list.html",
         {
             "page_obj": page_obj,
-            "rating_forms": rating_forms,
             "query": query,
         },
     )
@@ -609,7 +846,6 @@ def song_list_view(request):
 # 歌手の曲リスト
 @login_required
 def artist_song_list_view(request, artist_id):
-    from .forms import InlineRatingForm
 
     artist = get_object_or_404(Artist, pk=artist_id)
 
@@ -651,23 +887,22 @@ def artist_song_list_view(request, artist_id):
     current_rank = 0
     next_rank = 1
 
-    rating_forms = {}
-
     for song in songs:
         if song.user_score != prev_score:
             current_rank = next_rank
 
-        # ★変更：フォームも selected_user の Rating を参照
-        try:
-            rating = Rating.objects.get(user=selected_user, song=song)
-        except Rating.DoesNotExist:
-            rating = None
-        form = InlineRatingForm(instance=rating, prefix=str(song.id))
-        rating_forms[song.id] = form
-
         ranked_songs.append(
             {
-                "song": song,
+                "song": {
+                    "song_id": song.id,
+                    "song_title": song.title,
+                    "artist_id": song.artist_id,
+                    "artist_name": song.artist.name,
+                    "lyricist": song.lyricist,
+                    "composer": song.composer,
+                    "year": song.year,
+                    "is_cover": song.is_cover,
+                },
                 "rank": current_rank,
                 "user_score": song.user_score,
                 "user_karaoke_score": song.user_karaoke_score,
@@ -678,27 +913,10 @@ def artist_song_list_view(request, artist_id):
         next_rank += 1
 
     # ★追加：datalist 用の既存クリエイター候補（このアーティストで入力済みのもの）
-    lyricist_suggestions = sorted(
-        {
-            s.lyricist
-            for s in artist.songs.all()
-            if s.lyricist
-        }
-    )
-    composer_suggestions = sorted(
-        {
-            s.composer
-            for s in artist.songs.all()
-            if s.composer
-        }
-    )
-    year_suggestions = sorted(
-        {
-            s.year
-            for s in artist.songs.all()
-            if s.year
-        }
-    )
+    # 取得済みの songs から組み立てる（以前は artist.songs.all() を3回引き直していた）
+    lyricist_suggestions = sorted({s.lyricist for s in songs if s.lyricist})
+    composer_suggestions = sorted({s.composer for s in songs if s.composer})
+    year_suggestions = sorted({s.year for s in songs if s.year})
 
     return render(
         request,
@@ -706,7 +924,6 @@ def artist_song_list_view(request, artist_id):
         {
             "artist": artist,
             "songs": ranked_songs,
-            "rating_forms": rating_forms,
             "all_users": users,  # ★追加
             "selected_user": selected_user,  # ★追加
             "is_own_page": is_own_page,  # ★追加
@@ -767,25 +984,32 @@ def creator_song_list_view(request):
     current_rank = 0
     next_rank = 1
 
-    rating_forms = {}
-
     for song in songs:
         if song.user_score != prev_score:
             current_rank = next_rank
 
-        try:
-            rating = Rating.objects.get(user=selected_user, song=song)
-        except Rating.DoesNotExist:
-            rating = None
-        form = InlineRatingForm(instance=rating, prefix=str(song.id))
-        rating_forms[song.id] = form
-
         ranked_songs.append(
-            {"song": song, "rank": current_rank, "user_score": song.user_score}
+            {
+                "song": {
+                    "song_id": song.id,
+                    "song_title": song.title,
+                    "artist_id": song.artist_id,
+                    "artist_name": song.artist.name,
+                    "lyricist": song.lyricist,
+                    "composer": song.composer,
+                    "year": song.year,
+                    "is_cover": song.is_cover,
+                },
+                "rank": current_rank,
+                "user_score": song.user_score,
+            }
         )
 
         prev_score = song.user_score
         next_rank += 1
+
+    # 表示するメタ列（自分自身は除外）: 作詞別 → 作曲・年, 作曲別 → 作詞・年, 年別 → 作詞・作曲
+    extra_columns = [c for c in ("lyricist", "composer", "year") if c != creator_type]
 
     return render(
         request,
@@ -795,10 +1019,10 @@ def creator_song_list_view(request):
             "creator_name": creator_name,
             "creator_label": creator_label,
             "songs": ranked_songs,
-            "rating_forms": rating_forms,
             "all_users": users,
             "selected_user": selected_user,
             "is_own_page": is_own_page,
+            "extra_columns": extra_columns,
         },
     )
 
@@ -925,7 +1149,8 @@ def _extract_indices(post_dict, prefix):
 @login_required
 def bulk_add_view(request):
     regions = MusicRegion.objects.all()
-    artists = Artist.objects.select_related("region").all().order_by("name")
+    # テンプレートでは id / name / region_id しか使わないため、モデルを組み立てず値だけ取る
+    artists = Artist.objects.order_by("name").values("id", "name", "region_id")
 
     selected_artist_id = request.GET.get("artist_id") or ""
     selected_region_id = ""
@@ -1260,11 +1485,14 @@ def kana_to_hiragana(s: str) -> str:
     return "".join(result)
 
 
-# 歌手検索
-@login_required
-def artist_search_view(request):
-    regions = MusicRegion.objects.all()
+# 歌手検索の1回あたり表示件数。
+# 全件（邦楽で約1350件）を一度に返すとHTMLが400KB超になり、
+# ブラウザ側のパースとDOM構築が重くなるため分割する。
+ARTIST_SEARCH_PAGE_SIZE = 200
 
+
+def _artist_search_results(request):
+    """検索条件を解決し、絞り込み済みの歌手リストを返す。戻り値: (region_id, prefix, filter_top, artists)"""
     # region_id
     if "region_id" not in request.GET:
         region_id = "1"
@@ -1278,52 +1506,105 @@ def artist_search_view(request):
     user = request.user
     filter_top = request.GET.get("top")
 
-    # まずは今まで通り DB 側で集計
-    qs = Artist.objects.select_related("region").annotate(
-        song_count=Count("songs", filter=Q(songs__is_cover=False), distinct=True),
-        rating_count=Count(
-            "songs__ratings",
-            filter=Q(songs__is_cover=False, songs__ratings__user=user),
-            distinct=True,
-        ),
+    # 曲数と採点数を1本のクエリでまとめて annotate すると
+    # (歌手 × 曲 × 評価) の掛け算になった行を DISTINCT で数え直すことになり重い。
+    # 曲側・評価側をそれぞれ1回の集計クエリで取り、Python側で突き合わせる。
+    song_counts = dict(
+        Song.objects.filter(is_cover=False)
+        .values_list("artist_id")
+        .annotate(c=Count("id"))
+        .values_list("artist_id", "c")
+    )
+    rating_counts = dict(
+        Rating.objects.filter(user=user, song__is_cover=False)
+        .values_list("song__artist_id")
+        .annotate(c=Count("id"))
+        .values_list("song__artist_id", "c")
     )
 
+    artist_qs = Artist.objects.all()
     if region_id:
-        qs = qs.filter(region_id=region_id)
+        artist_qs = artist_qs.filter(region_id=region_id)
 
-    # プルダウンの条件（ここも DB 側で）
+    # テンプレートで使うのは id / name / 2つの件数だけ
+    artists = []
+    for a in artist_qs.values("id", "name"):
+        a["song_count"] = song_counts.get(a["id"], 0)
+        a["rating_count"] = rating_counts.get(a["id"], 0)
+        # アーティスト名を ひらがな + 小文字 に正規化して持たせる
+        a["name_norm"] = kana_to_hiragana(a["name"].lower())
+        artists.append(a)
+
+    # プルダウンの条件（集計をPython側に移したので絞り込みもこちらで行う）
     if filter_top in ["5", "10", "15", "20"]:
         n = int(filter_top)
-        qs = qs.filter(song_count__gte=n - 5, song_count__lt=n)
+        artists = [a for a in artists if n - 5 <= a["song_count"] < n]
     elif filter_top == "0":
-        qs = qs.filter(song_count__gt=F("rating_count"))
+        artists = [a for a in artists if a["song_count"] > a["rating_count"]]
     elif filter_top == "20~":
-        qs = qs.filter(song_count__gt=F("rating_count"), rating_count__gte=20)
-
-    # ここから Python 側で ひらがな/カタカナ無視のフィルタ & ソート
-    artists = list(qs)  # クエリを評価してリスト化（annotation はそのまま乗ってる）
-
-    # アーティスト名を ひらがな + 小文字 に正規化して持たせる
-    for a in artists:
-        a.name_norm = kana_to_hiragana(a.name.lower())
+        artists = [
+            a
+            for a in artists
+            if a["song_count"] > a["rating_count"] and a["rating_count"] >= 20
+        ]
 
     # prefix フィルタ（ひらがな/カタカナ無視）
     if prefix_norm:
-        artists = [a for a in artists if a.name_norm.startswith(prefix_norm)]
+        artists = [a for a in artists if a["name_norm"].startswith(prefix_norm)]
 
     # ソートも正規化した名前で
-    artists.sort(key=lambda x: x.name_norm)
+    artists.sort(key=lambda x: x["name_norm"])
+
+    return region_id, prefix, filter_top, artists
+
+
+# 歌手検索
+@login_required
+def artist_search_view(request):
+    region_id, prefix, filter_top, artists = _artist_search_results(request)
+
+    shown = artists[:ARTIST_SEARCH_PAGE_SIZE]
 
     return render(
         request,
         "songs/artist_search.html",
         {
-            "artists": artists,
-            "regions": regions,
+            "artists": shown,
+            "regions": MusicRegion.objects.all(),
             "region_id": region_id,
             "prefix": prefix,
             "top": filter_top,
+            "loaded_count": len(shown),
+            "remaining_count": len(artists) - len(shown),
         },
+    )
+
+
+@login_required
+def artist_search_rows_view(request):
+    """「もっと見る」用。続きの行をHTML断片として返す。"""
+    _, _, _, artists = _artist_search_results(request)
+
+    try:
+        offset = max(int(request.GET.get("offset", 0)), 0)
+    except ValueError:
+        offset = 0
+
+    shown = artists[offset : offset + ARTIST_SEARCH_PAGE_SIZE]
+    loaded = offset + len(shown)
+
+    html = render_to_string(
+        "songs/partials/_artist_search_rows.html",
+        {"artists": shown},
+        request=request,
+    )
+
+    return JsonResponse(
+        {
+            "html": html,
+            "loaded_count": loaded,
+            "remaining_count": max(len(artists) - loaded, 0),
+        }
     )
 
 

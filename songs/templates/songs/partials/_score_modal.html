@@ -1,0 +1,69 @@
+{% comment %}
+点数編集モーダル（HTML + JS）。
+content内にモーダルHTMLを置きたい場合は modal_html=True で include。
+JSのみ出したい場合は modal_js=True で include（extra_jsブロック内）。
+両方省略時は HTMLとJSの両方を出す。
+{% endcomment %}
+{% if not modal_js %}
+<div id="scoreModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <h3>点数を入力</h3>
+        <input type="number" id="scoreInput" min="0" max="100" class="score-input">
+        <button id="saveScoreBtn">保存</button>
+    </div>
+</div>
+{% endif %}
+{% if not modal_html %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const modal = document.getElementById("scoreModal");
+        const scoreInput = document.getElementById("scoreInput");
+        const saveBtn = document.getElementById("saveScoreBtn");
+        const closeBtn = document.querySelector(".close");
+
+        let currentSongId = null;
+
+        // 「もっと見る」で後から追加された行にも効くよう、イベント委譲にする
+        document.addEventListener("click", function (e) {
+            const span = e.target.closest(".editable-score");
+            if (!span) return;
+
+            currentSongId = span.dataset.songId;
+            scoreInput.value = span.dataset.currentScore;
+            modal.style.display = "block";
+        });
+
+        closeBtn.onclick = () => { modal.style.display = "none"; };
+        window.onclick = (e) => { if (e.target == modal) modal.style.display = "none"; };
+
+        saveBtn.addEventListener("click", function () {
+            const score = scoreInput.value;
+
+            showOverlay(); // 処理開始
+
+            fetch("{% url 'update_rating' %}", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-CSRFToken": "{{ csrf_token }}",
+                },
+                body: `song_id=${currentSongId}&score=${score}`,
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    modal.style.display = "none";
+                    location.reload();  // ランキング再描画
+                } else {
+                    alert("保存失敗：" + data.error);
+                }
+            })
+            .catch(error => {
+                alert("通信エラー");
+                console.error(error);
+            });
+        });
+    });
+</script>
+{% endif %}

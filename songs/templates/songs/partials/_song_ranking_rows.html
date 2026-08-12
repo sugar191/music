@@ -1,0 +1,59 @@
+{% comment %}
+全曲TOPの行部分。初回描画と「もっと見る」の追加読み込みで共用する。
+必要なコンテキスト:
+  songs: 曲リスト
+  is_own_page
+  karaoke_mode
+{% endcomment %}
+{% load format_filters %}
+{% for song in songs %}
+    <tr>
+        <td class="count-cell">{{ song.display_rank }}</td>
+        <td class="pc-cell">
+            <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
+        </td>
+        <td class="pc-cell">
+            <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
+        </td>
+        <td class="pc-cell">
+            {% if song.lyricist %}
+                <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a>
+            {% endif %}
+        </td>
+        <td class="pc-cell">
+            {% if song.composer %}
+                <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a>
+            {% endif %}
+        </td>
+        <td class="year-cell pc-cell">
+            {% if song.year %}
+                <a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year|year_with_suffix }}</a>
+            {% endif %}
+        </td>
+        <td class="mobile-cell">
+            {% include "songs/partials/_song_title_cell.html" with show_artist=True show_lyricist=True show_composer=True show_year=True %}
+        </td>
+        <td class="score-cell">
+            {% if song.score %}
+                {% if is_own_page %}
+                    <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}"{% if karaoke_mode %} data-karaoke="1"{% endif %}>
+                        {{ song.score }}
+                    </span>
+                {% else %}
+                    {{ song.score }}
+                {% endif %}
+            {% endif %}
+        </td>
+        <td class="score-cell pc-cell">
+            {% if song.karaoke_score %}
+                {% if is_own_page %}
+                    <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.karaoke_score }}" data-karaoke="1">
+                        {{ song.karaoke_score }}
+                    </span>
+                {% else %}
+                    {{ song.karaoke_score }}
+                {% endif %}
+            {% endif %}
+        </td>
+    </tr>
+{% endfor %}

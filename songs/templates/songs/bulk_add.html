@@ -21,12 +21,9 @@
                 <option value="{{ r.id }}" {% if selected_region_id == r.id|stringformat:"s" %}selected{% endif %}>{{ r.name }}</option>
               {% endfor %}
             </select>
-            <select name="artist_id" id="artist-select">
+            {# 選択肢は #artist-options-master からJSで流し込む（歌手リストの重複出力を避けるため） #}
+            <select name="artist_id" id="artist-select" data-selected="{{ selected_artist_id }}">
               <option value="">-- 歌手 --</option>
-              {% for artist in artists %}
-                <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}"
-                  {% if selected_artist_id == artist.id|stringformat:"s" %}selected{% endif %}>{{ artist.name }}</option>
-              {% endfor %}
             </select>
             <input type="text" name="new_artist_name" id="artist-name-input" placeholder="新しい歌手名">
 
@@ -87,16 +84,13 @@
           <button type="submit">登録</button>
         </div>
 
-        <!-- マスターオプション（非表示）：JSで複製に使う -->
+        <!-- マスターオプション（非表示）：歌手リストはページ全体でここ1箇所だけ。
+             単一モードのselectも各行のselectも、JSがここから複製する。 -->
         <select id="region-options-master" style="display:none">
-          <option value="">--</option>
           {% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
         </select>
         <select id="artist-options-master" style="display:none">
-          <option value="">--</option>
-          {% for artist in artists %}
-            <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}">{{ artist.name }}</option>
-          {% endfor %}
+          {% for artist in artists %}<option value="{{ artist.id }}" data-region-id="{{ artist.region_id }}">{{ artist.name }}</option>{% endfor %}
         </select>
 
         <table>
@@ -109,20 +103,9 @@
             {% for i in range_initial %}
               <tr data-row="{{ i }}">
                 <td>{{ i }}</td>
-                <td>
-                  <select name="region_id_{{ i }}" class="region-select" data-row="{{ i }}">
-                    <option value="">--</option>
-                    {% for r in regions %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
-                  </select>
-                </td>
-                <td>
-                  <select name="artist_id_{{ i }}" class="artist-select" data-row="{{ i }}">
-                    <option value="">--</option>
-                    {% for artist in artists %}
-                      <option value="{{ artist.id }}" data-name="{{ artist.name|lower }}" data-region-id="{{ artist.region.id }}">{{ artist.name }}</option>
-                    {% endfor %}
-                  </select>
-                </td>
+                {# 選択肢はJSがマスターから流し込む（JS追加行と同じ扱い） #}
+                <td><select name="region_id_{{ i }}" class="region-select" data-row="{{ i }}"></select></td>
+                <td><select name="artist_id_{{ i }}" class="artist-select" data-row="{{ i }}"></select></td>
                 <td><input type="text" name="new_artist_name_{{ i }}" class="new-artist-input" data-row="{{ i }}" placeholder="新規の場合ここに入力"></td>
                 <td><input type="text" name="song_title_{{ i }}" placeholder="曲名"></td>
                 <td><input type="text" name="song_lyricist_{{ i }}" list="lyricist-suggestions" placeholder="作詞"></td>
@@ -213,10 +196,36 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
+  // ===== 選択肢マスター =====
+  // 歌手リストはHTML上ここ1箇所だけ。各selectへはJSで複製する。
+  const regionMaster = document.getElementById("region-options-master");
+  const artistMaster = document.getElementById("artist-options-master");
+  const regionOptionsHtml = regionMaster ? regionMaster.innerHTML : "";
+  const artistOptionsHtml = artistMaster ? artistMaster.innerHTML : "";
+
+  function fillRowSelects(row, i) {
+    if (!row) return;
+    const rsel = row.querySelector(`select[name="region_id_${i}"]`);
+    const asel = row.querySelector(`select[name="artist_id_${i}"]`);
+    if (rsel) rsel.innerHTML = '<option value="">--</option>' + regionOptionsHtml;
+    if (asel) asel.innerHTML = '<option value="">--</option>' + artistOptionsHtml;
+  }
+
+  // 歌手名の一致判定（旧 data-name の代わりに表示名を小文字化して比較）
+  function optionName(option) {
+    return option.textContent.trim().toLowerCase();
+  }
+
   // ===== 単一モード 既存の同期（あなたの既存JSそのまま） =====
   const regionSelect = document.getElementById("region-select");
   const artistSelect = document.getElementById("artist-select");
   const artistInput  = document.getElementById("artist-name-input");
+
+  // 単一モードの歌手selectもマスターから組み立てる
+  if (artistSelect) {
+    artistSelect.innerHTML = '<option value="">-- 歌手 --</option>' + artistOptionsHtml;
+    artistSelect.value = artistSelect.dataset.selected || "";
+  }
   // ★ 単一モード：歌手を選んだら artist_id を付けて再ロード
   if (artistSelect) {
     artistSelect.addEventListener("change", function () {
@@ -250,7 +259,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!inputName) return;
       let matched = false;
       Array.from(artistSelect.options).forEach(option => {
-        if (option.dataset.name === inputName) {
+        if (optionName(option) === inputName) {
           option.selected = true;
           regionSelect.value = option.dataset.regionId || "";
           filterArtistsByRegionSingle(regionSelect.value);
@@ -297,9 +306,12 @@ document.addEventListener("DOMContentLoaded", function () {
   let singleNextIdx = singleTbody ? singleTbody.querySelectorAll("tr").length + 1 : 1;
   let multiNextIdx  = multiTbody ? multiTbody.querySelectorAll("tr").length + 1 : 1;
 
-  // マスターoption
-  const regionMaster = document.getElementById("region-options-master");
-  const artistMaster = document.getElementById("artist-options-master");
+  // 初期表示ぶんの行にも選択肢を流し込む（HTML側は空のselectだけを出している）
+  if (multiTbody) {
+    multiTbody.querySelectorAll("tr[data-row]").forEach(row => {
+      fillRowSelects(row, row.dataset.row);
+    });
+  }
 
   function addSingleRows(n=1) {
     for (let k=0;k<n;k++) {
@@ -314,11 +326,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const html = multiTpl.innerHTML.replaceAll("__i__", i);
       multiTbody.insertAdjacentHTML("beforeend", html);
       // 追加直後にoptionを流し込み
-      const row = multiTbody.querySelector(`tr[data-row="${i}"]`);
-      const rsel = row.querySelector(`select[name="region_id_${i}"]`);
-      const asel = row.querySelector(`select[name="artist_id_${i}"]`);
-      if (rsel && regionMaster) rsel.innerHTML = regionMaster.innerHTML;
-      if (asel && artistMaster) asel.innerHTML = artistMaster.innerHTML;
+      fillRowSelects(multiTbody.querySelector(`tr[data-row="${i}"]`), i);
     }
   }
 
@@ -377,7 +385,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const rsel = document.querySelector(`select[name="region_id_${row}"]`);
       let matched = false;
       Array.from(asel.options).forEach(opt => {
-        if (opt.dataset.name === inputName) {
+        if (optionName(opt) === inputName) {
           opt.selected = true;
           const rid = opt.dataset.regionId || "";
           if (rsel && rid) {

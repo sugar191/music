@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load get_item %}
+{% load format_filters %}
 {% block title %}{{ creator_label }}：{{ creator_name }}の曲一覧{% endblock %}
 {% block content %}
 <!-- ユーザー選択プルダウン -->
@@ -18,7 +19,7 @@
     </form>
 </div>
 <div class="table-area">
-    <div>{{ creator_label }}：{{ creator_name }}の曲一覧</div>
+    <div>{% if creator_label == "年" %}{{ creator_name|year_with_suffix }}{% else %}{{ creator_label }}：{{ creator_name }}{% endif %}の曲一覧</div>
     <table>
         <thead>
             <tr>
@@ -27,6 +28,9 @@
                 <th class="pc-cell">歌手</th>
                 <th>点数</th>
                 <th class="cover-cell">カバー</th>
+                {% if 'lyricist' in extra_columns %}<th class="pc-cell">作詞</th>{% endif %}
+                {% if 'composer' in extra_columns %}<th class="pc-cell">作曲</th>{% endif %}
+                {% if 'year' in extra_columns %}<th class="pc-cell">年</th>{% endif %}
             </tr>
         </thead>
         <tbody>
@@ -36,27 +40,25 @@
                 <td class="count-cell">{{ entry.rank }}</td>
                 <td class="pc-cell">
                     <div>
-                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
                     </div>
                 </td>
                 <td class="pc-cell">
                     <div>
-                        <a href="{% url 'artist_songs' song.artist.id %}">{{ song.artist.name }}</a>
+                        <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
                     </div>
                 </td>
                 <td class="mobile-cell">
                     <div>
-                        <a href="https://www.youtube.com/results?search_query={{ song.artist.name|urlencode }}+{{ song.title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.title }}</a>
+                        <a href="https://www.youtube.com/results?search_query={{ song.artist_name|urlencode }}+{{ song.song_title|urlencode }}" target="_blank" rel="noopener noreferrer">{{ song.song_title }}</a>
                     </div>
                     <div>
-                        <a href="{% url 'artist_songs' song.artist.id %}">{{ song.artist.name }}</a>
+                        <a href="{% url 'artist_songs' song.artist_id %}">{{ song.artist_name }}</a>
                     </div>
                 </td>
                 <td class="score-cell">
                     {% if is_own_page %}
-                        {% with form=rating_forms|get_item:song.id %}
-                            <input type="number" name="{{ song.id }}-score" step="1" min="0" max="100" value="{{ form.initial.score|default_if_none:'' }}" data-song-id="{{ song.id }}" class="score-input">
-                        {% endwith %}
+                        <input type="number" name="{{ song.song_id }}-score" step="1" min="0" max="100" value="{{ entry.user_score|default_if_none:'' }}" data-song-id="{{ song.song_id }}" class="score-input">
                     {% else %}
                         {% if entry.user_score is not None %}
                             {{ entry.user_score }}
@@ -66,12 +68,33 @@
                     {% endif %}
                 </td>
                 <td class="cover-cell">
-                    <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.id }}" {% if song.is_cover %}checked{% endif %}>
+                    <input type="checkbox" class="cover-checkbox" data-song-id="{{ song.song_id }}" {% if song.is_cover %}checked{% endif %}>
                 </td>
+                {% if 'lyricist' in extra_columns %}
+                    <td class="pc-cell">
+                        {% if song.lyricist %}
+                            <a href="{% url 'creator_songs' %}?type=lyricist&name={{ song.lyricist|urlencode }}">{{ song.lyricist }}</a>
+                        {% endif %}
+                    </td>
+                {% endif %}
+                {% if 'composer' in extra_columns %}
+                    <td class="pc-cell">
+                        {% if song.composer %}
+                            <a href="{% url 'creator_songs' %}?type=composer&name={{ song.composer|urlencode }}">{{ song.composer }}</a>
+                        {% endif %}
+                    </td>
+                {% endif %}
+                {% if 'year' in extra_columns %}
+                    <td class="pc-cell">
+                        {% if song.year %}
+                            <a href="{% url 'creator_songs' %}?type=year&name={{ song.year }}">{{ song.year|year_with_suffix }}</a>
+                        {% endif %}
+                    </td>
+                {% endif %}
             </tr>
             {% endwith %}
             {% empty %}
-                <tr><td colspan="5">曲が見つかりませんでした。</td></tr>
+                <tr><td colspan="7">曲が見つかりませんでした。</td></tr>
             {% endfor %}
         </tbody>
     </table>

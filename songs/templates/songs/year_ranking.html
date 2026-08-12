@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load get_item %}
+{% block title %}年別TOP{% endblock %}
+
+{% block content %}
+    {% include "songs/partials/_top_bar.html" with current_kind='year' %}
+
+    {# 年別カード内の曲：年は親に出るので非表示。歌手・作詞・作曲を出す #}
+    {% include "songs/partials/_ranking_grid.html" with show_artist=True show_lyricist=True show_composer=True show_year=False %}
+
+    {# その他テーブル：年列を出す。各曲に歌手・作詞・作曲を表示 #}
+    {% include "songs/partials/_others_table.html" with show_creator_col=True creator_type='year' show_artist=True show_lyricist=True show_composer=True show_year=False %}
+
+    {% include "songs/partials/_ranking_load_more.html" %}
+
+    {% include "songs/partials/_score_modal.html" with modal_html=True %}
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{% include "songs/partials/_score_modal.html" with modal_js=True %}
+{% endblock %}

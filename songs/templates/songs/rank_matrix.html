@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{{ creator_label }}ランク{% endblock %}
+{% load format_filters %}
+{% block title %}{{ kind_label }}ランク{% endblock %}
 {% block content %}
-    <!-- ユーザー選択プルダウン -->
     <div class="top-bar">
         <select id="kind-select" onchange="switchTopKind(this)">
-            <option value="{% url 'artist_rank_matrix' %}">歌手</option>
-            <option value="{% url 'lyricist_matrix' %}" {% if creator_type == 'lyricist' %}selected{% endif %}>作詞</option>
-            <option value="{% url 'composer_matrix' %}" {% if creator_type == 'composer' %}selected{% endif %}>作曲</option>
-            <option value="{% url 'year_matrix' %}" {% if creator_type == 'year' %}selected{% endif %}>年</option>
+            <option value="{% url 'artist_rank_matrix' %}" {% if kind == 'artist' %}selected{% endif %}>歌手</option>
+            <option value="{% url 'lyricist_matrix' %}" {% if kind == 'lyricist' %}selected{% endif %}>作詞</option>
+            <option value="{% url 'composer_matrix' %}" {% if kind == 'composer' %}selected{% endif %}>作曲</option>
+            <option value="{% url 'year_matrix' %}" {% if kind == 'year' %}selected{% endif %}>年</option>
         </select>
         <form method="get">
             <select name="user" id="user" onchange="this.form.submit()">
@@ -40,7 +40,7 @@
         <table id="rank-matrix-table">
         <thead>
             <tr>
-            <th>{{ creator_label }}</th>
+            <th>{{ kind_label }}</th>
             <th style="text-align:right; cursor:pointer;" data-sort-n="5">5</th>
             <th style="text-align:right; cursor:pointer;" data-sort-n="10">10</th>
             <th style="text-align:right; cursor:pointer;" data-sort-n="15">15</th>
@@ -50,7 +50,7 @@
         <tbody>
             {% for r in rows %}
             <tr>
-                <td><a href="{% url 'creator_songs' %}?type={{ creator_type }}&name={{ r.creator_name|urlencode }}">{{ r.creator_name }}</a></td>
+                <td><a href="{{ r.display_link }}">{% if kind == 'year' %}{{ r.display_name|year_with_suffix }}{% else %}{{ r.display_name }}{% endif %}</a></td>
                 <td style="text-align:right;">{{ r.rank_5|default:"-" }}</td>
                 <td style="text-align:right;">{{ r.rank_10|default:"-" }}</td>
                 <td style="text-align:right;">{{ r.rank_15|default:"-" }}</td>
@@ -68,7 +68,7 @@
         var tbody = table.tBodies[0];
         if (!tbody) return;
 
-        // 列インデックス: 0=クリエイター, 1=5, 2=10, 3=15, 4=20
+        // 列インデックス: 0=名前, 1=5, 2=10, 3=15, 4=20
         var colIndexByN = { 5: 1, 10: 2, 15: 3, 20: 4 };
         // 各Nでのタイブレーカー順（クリックされたN値が「-」のときの並べ替え基準）
         var tieBreakersByN = {
@@ -87,7 +87,7 @@
             return isNaN(v) ? null : v;
         }
 
-        function creatorName(row) {
+        function nameOf(row) {
             var td = row.cells[0];
             return td ? (td.textContent || '').trim() : '';
         }
@@ -120,7 +120,8 @@
                         if (!atNull && !btNull && at !== bt) return at - bt;
                     }
                 }
-                return creatorName(a).localeCompare(creatorName(b), 'ja');
+                // 最終タイブレーカー：名前（昇順）
+                return nameOf(a).localeCompare(nameOf(b), 'ja');
             });
 
             var frag = document.createDocumentFragment();

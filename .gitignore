@@ -31,3 +31,6 @@ Thumbs.db
 
 # キャッシュ
 /exports/
+
+# 開発環境用
+/tools/
