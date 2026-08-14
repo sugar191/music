@@ -5,6 +5,7 @@
   ranking_options, top_n
   regions, region_id
   all_users, selected_user
+  karaoke_mode: 点数 / カラオケ点数 の切替状態
 {% endcomment %}
 <div class="top-bar">
     <select id="kind-select" onchange="switchTopKind(this)">
@@ -32,6 +33,7 @@
                 </option>
             {% endfor %}
         </select>
+        {% include "songs/partials/_karaoke_switch.html" %}
     </form>
 </div>
 <script>

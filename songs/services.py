@@ -9,16 +9,30 @@ _CREATOR_COLUMNS = {
 }
 
 
-def _creator_filtered_cte(col, region_filter, is_numeric=False):
+def _score_column(karaoke_mode):
+    """
+    ランキングの集計対象カラム名を返す。
+    karaoke_mode=True ならカラオケ採点、False なら従来の点数。
+    固定の2値しか返さないので SQL へ直接埋め込んでよい。
+    """
+    return "r.karaoke_score" if karaoke_mode else "r.score"
+
+
+def _creator_filtered_cte(col, region_filter, is_numeric=False, karaoke_mode=False):
     """
     作詞/作曲/年ランキングの共通CTE: 評価済・非カバー・対象カラム入力済の曲を抽出。
 
     r.score IS NOT NULL は必須。Rating はカラオケ点数だけ登録される場合があり
     （API の update_score が score=NULL の行を作る）、除外しないと
     好み度が無い曲まで song_count に数えられて TOP{N} の成立条件が甘くなる。
+    karaoke_mode のときは逆に「カラオケ採点が入っている曲」だけを対象にする。
+
+    集計対象カラムは score という別名で返すため、この CTE を使う側の SQL は
+    モードによらず変更不要。
     """
     # 数値カラム（year）は <> '' のチェックを外す（型エラー回避）
     empty_check = "" if is_numeric else f"AND s.{col} <> ''"
+    score_col = _score_column(karaoke_mode)
     return f"""
         WITH filtered AS (
             SELECT
@@ -28,7 +42,7 @@ def _creator_filtered_cte(col, region_filter, is_numeric=False):
                 s.title AS song_title,
                 s.artist_id,
                 a.name AS artist_name,
-                r.score,
+                {score_col} AS score,
                 a.region_id,
                 s.lyricist AS lyricist,
                 s.composer AS composer,
@@ -37,7 +51,7 @@ def _creator_filtered_cte(col, region_filter, is_numeric=False):
             JOIN songs_song s ON r.song_id = s.id
             JOIN songs_artist a ON s.artist_id = a.id
             WHERE r.user_id = %s
-              AND r.score IS NOT NULL
+              AND {score_col} IS NOT NULL
               AND s.is_cover = 0
               AND s.{col} IS NOT NULL
               {empty_check}
@@ -49,10 +63,11 @@ def _creator_filtered_cte(col, region_filter, is_numeric=False):
     """
 
 
-def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
+def call_creator_song_top_n(user_id, top_n, region_id, creator_type, karaoke_mode=False):
     """
     作詞者・作曲者・年ごとに、上位N曲の詳細を返す（歌手別TOPと同構造）。
     creator_type: 'lyricist' / 'composer' / 'year'
+    karaoke_mode: True ならカラオケ採点で集計する
     戻り値: 曲単位のdictリスト
       {creator, creator_rank, total_score, song_id, song_title,
        artist_id, artist_name, score, rank_creator, order_creator,
@@ -70,7 +85,7 @@ def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
     params.append(top_n)  # song_count >= top_n
     params.append(top_n)  # order_creator <= top_n
 
-    sql = _creator_filtered_cte(col, region_filter, is_numeric) + """
+    sql = _creator_filtered_cte(col, region_filter, is_numeric, karaoke_mode) + """
         ,
         ranked AS (
             SELECT
@@ -129,9 +144,12 @@ def call_creator_song_top_n(user_id, top_n, region_id, creator_type):
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def call_creator_insufficient_songs(user_id, top_n, region_id, creator_type):
+def call_creator_insufficient_songs(
+    user_id, top_n, region_id, creator_type, karaoke_mode=False
+):
     """
     作詞者/作曲者/年ごとの曲数が top_n に満たないクリエイターの曲を返す（歌手別TOPの"その他"と同じ役割）。
+    karaoke_mode: True ならカラオケ採点で集計する
     戻り値: 曲単位のdictリスト（scoreの降順で順位付け）
     """
     if creator_type not in _CREATOR_COLUMNS:
@@ -145,7 +163,7 @@ def call_creator_insufficient_songs(user_id, top_n, region_id, creator_type):
         params.append(int(region_id))
     params.append(top_n)  # song_count < top_n
 
-    sql = _creator_filtered_cte(col, region_filter, is_numeric) + """
+    sql = _creator_filtered_cte(col, region_filter, is_numeric, karaoke_mode) + """
         ,
         insufficient_creators AS (
             SELECT creator FROM counts WHERE song_count < %s
@@ -197,12 +215,13 @@ def call_my_procedure(procname, *args):
 # rank_view / artist_song_counts_view への依存を排除して書き直したもの。
 
 
-def _artist_filtered_cte(region_filter):
+def _artist_filtered_cte(region_filter, karaoke_mode=False):
     """
     歌手ランキング用CTE: ユーザの評価済み非カバー曲＋歌手単位の曲数を計算。
 
-    r.score IS NOT NULL については _creator_filtered_cte のコメントを参照。
+    score IS NOT NULL / karaoke_mode については _creator_filtered_cte のコメントを参照。
     """
+    score_col = _score_column(karaoke_mode)
     return f"""
         WITH filtered AS (
             SELECT
@@ -212,7 +231,7 @@ def _artist_filtered_cte(region_filter):
                 s.artist_id,
                 a.name AS artist_name,
                 a.region_id,
-                r.score,
+                {score_col} AS score,
                 s.lyricist AS lyricist,
                 s.composer AS composer,
                 s.year AS year
@@ -220,7 +239,7 @@ def _artist_filtered_cte(region_filter):
             JOIN songs_song s ON r.song_id = s.id
             JOIN songs_artist a ON s.artist_id = a.id
             WHERE r.user_id = %s
-              AND r.score IS NOT NULL
+              AND {score_col} IS NOT NULL
               AND s.is_cover = 0
               {region_filter}
         ),
@@ -232,11 +251,12 @@ def _artist_filtered_cte(region_filter):
     """
 
 
-def call_artist_song_top_n(user_id, top_n, region_id):
+def call_artist_song_top_n(user_id, top_n, region_id, karaoke_mode=False):
     """
     歌手別TOP（曲ごと詳細モード）。
     各歌手の上位N曲を、その歌手の合計点・順位とともに返す。
     歌手は「ユーザがその歌手の曲を top_n 曲以上評価済み」に限定。
+    karaoke_mode: True ならカラオケ採点で集計する
     戻り値: 曲単位のdictリスト
       {song_id, song_title, artist_id, artist_name, region_id, score,
        order_artist, rank_artist, total_score, artist_rank,
@@ -250,7 +270,7 @@ def call_artist_song_top_n(user_id, top_n, region_id):
     params.append(top_n)  # song_count >= top_n
     params.append(top_n)  # order_artist <= top_n
 
-    sql = _artist_filtered_cte(region_filter) + """
+    sql = _artist_filtered_cte(region_filter, karaoke_mode) + """
         ,
         ranked AS (
             SELECT
@@ -384,7 +404,7 @@ def _validate_top_ns(top_ns):
     return ns
 
 
-def call_artist_top_n_multi(user_id, region_id, top_ns=TOP_NS):
+def call_artist_top_n_multi(user_id, region_id, top_ns=TOP_NS, karaoke_mode=False):
     """
     歌手ランキングを top_n 4種類ぶんまとめて1クエリで返す（歌手TOP / 歌手ランク用）。
 
@@ -421,7 +441,7 @@ def call_artist_top_n_multi(user_id, region_id, top_ns=TOP_NS):
     )
 
     sql = (
-        _artist_filtered_cte(region_filter)
+        _artist_filtered_cte(region_filter, karaoke_mode)
         + f"""
         ,
         ranked AS (
@@ -459,7 +479,9 @@ def call_artist_top_n_multi(user_id, region_id, top_ns=TOP_NS):
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def call_creator_top_n_multi(user_id, region_id, creator_type, top_ns=TOP_NS):
+def call_creator_top_n_multi(
+    user_id, region_id, creator_type, top_ns=TOP_NS, karaoke_mode=False
+):
     """
     作詞者/作曲者/年ランキングを top_n 4種類ぶんまとめて1クエリで返す
     （作詞・作曲・年のTOP / ランク画面用）。
@@ -492,7 +514,7 @@ def call_creator_top_n_multi(user_id, region_id, creator_type, top_ns=TOP_NS):
     )
 
     sql = (
-        _creator_filtered_cte(col, region_filter, is_numeric)
+        _creator_filtered_cte(col, region_filter, is_numeric, karaoke_mode)
         + f"""
         ,
         ranked AS (
@@ -525,11 +547,12 @@ def call_creator_top_n_multi(user_id, region_id, creator_type, top_ns=TOP_NS):
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def call_artist_insufficient_songs(user_id, top_n, region_id):
+def call_artist_insufficient_songs(user_id, top_n, region_id, karaoke_mode=False):
     """
     歌手別TOPの「その他」枠：
     その歌手の評価済み曲数が top_n に満たない歌手について、
     各歌手の上位曲（order_artist <= top_n）をスコア順で並べて返す。
+    karaoke_mode: True ならカラオケ採点で集計する
     戻り値: 曲単位のdictリスト
       {song_id, song_title, artist_id, artist_name, region_id, score,
        order_artist, rank_within_insufficient}
@@ -542,7 +565,7 @@ def call_artist_insufficient_songs(user_id, top_n, region_id):
     params.append(top_n)  # order_artist <= top_n
     params.append(top_n)  # song_count < top_n
 
-    sql = _artist_filtered_cte(region_filter) + """
+    sql = _artist_filtered_cte(region_filter, karaoke_mode) + """
         ,
         ranked AS (
             SELECT

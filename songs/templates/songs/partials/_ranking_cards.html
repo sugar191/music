@@ -4,6 +4,7 @@
   rankings: [{parent_rank, parent_name, parent_link, total_score, songs:[...]}, ...]
   show_artist / show_lyricist / show_composer / show_year
   is_own_page
+  karaoke_mode: 集計がカラオケ点数か（編集先エンドポイントの切替に使う）
 {% endcomment %}
 {% load format_filters %}
 {% for row in rankings %}
@@ -18,7 +19,7 @@
                         {{ row.parent_name }}
                     {% endif %}
                 </th>
-                <th class="score-cell">{{ row.total_score|floatformat:0 }}</th>
+                <th class="score-cell">{{ row.total_score|ceil }}</th>
             </thead>
             <tbody>
                 {% for song in row.songs %}
@@ -27,13 +28,14 @@
                     <td>
                         {% include "songs/partials/_song_title_cell.html" %}
                     </td>
+                    {# 表示は幅を取らないよう切り上げ整数。編集用の data-current-score は元の値のまま #}
                     <td class="score-cell">
                         {% if is_own_page %}
-                            <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}">
-                                {{ song.score }}
+                            <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}"{% if karaoke_mode %} data-karaoke="1"{% endif %}>
+                                {{ song.score|ceil }}
                             </span>
                         {% else %}
-                            {{ song.score }}
+                            {{ song.score|ceil }}
                         {% endif %}
                     </td>
                 </tr>

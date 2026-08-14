@@ -3,6 +3,7 @@
 必要なコンテキスト:
   insufficient_songs: 曲リスト
   is_own_page
+  karaoke_mode: 集計がカラオケ点数か（編集先エンドポイントの切替に使う）
 {% endcomment %}
 {% load format_filters %}
 {% for song in insufficient_songs %}
@@ -34,13 +35,14 @@
     <td class="mobile-cell">
         {% include "songs/partials/_song_title_cell.html" with show_artist=True show_lyricist=True show_composer=True show_year=True %}
     </td>
+    {# 表示は幅を取らないよう切り上げ整数。編集用の data-current-score は元の値のまま #}
     <td class="score-cell">
         {% if is_own_page %}
-            <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}">
-                {{ song.score }}
+            <span class="editable-score" data-song-id="{{ song.song_id }}" data-current-score="{{ song.score }}"{% if karaoke_mode %} data-karaoke="1"{% endif %}>
+                {{ song.score|ceil }}
             </span>
         {% else %}
-            {{ song.score }}
+            {{ song.score|ceil }}
         {% endif %}
     </td>
 </tr>

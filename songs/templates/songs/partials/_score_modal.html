@@ -22,7 +22,10 @@ JSのみ出したい場合は modal_js=True で include（extra_jsブロック�
         const saveBtn = document.getElementById("saveScoreBtn");
         const closeBtn = document.querySelector(".close");
 
+        const modalTitle = modal.querySelector("h3");
+
         let currentSongId = null;
+        let currentKaraoke = false;
 
         // 「もっと見る」で後から追加された行にも効くよう、イベント委譲にする
         document.addEventListener("click", function (e) {
@@ -30,7 +33,18 @@ JSのみ出したい場合は modal_js=True で include（extra_jsブロック�
             if (!span) return;
 
             currentSongId = span.dataset.songId;
+            // カラオケ表示中はカラオケ採点を編集する（全曲TOPと同じ挙動）
+            currentKaraoke = span.dataset.karaoke === "1";
             scoreInput.value = span.dataset.currentScore;
+
+            if (currentKaraoke) {
+                scoreInput.step = "0.001";
+                if (modalTitle) modalTitle.textContent = "🎤採点を入力";
+            } else {
+                scoreInput.step = "1";
+                if (modalTitle) modalTitle.textContent = "点数を入力";
+            }
+
             modal.style.display = "block";
         });
 
@@ -42,13 +56,20 @@ JSのみ出したい場合は modal_js=True で include（extra_jsブロック�
 
             showOverlay(); // 処理開始
 
-            fetch("{% url 'update_rating' %}", {
+            const url = currentKaraoke
+                ? "{% url 'update_karaoke_score' %}"
+                : "{% url 'update_rating' %}";
+            const body = currentKaraoke
+                ? `song_id=${encodeURIComponent(currentSongId)}&karaoke_score=${encodeURIComponent(score)}`
+                : `song_id=${encodeURIComponent(currentSongId)}&score=${encodeURIComponent(score)}`;
+
+            fetch(url, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
                     "X-CSRFToken": "{{ csrf_token }}",
                 },
-                body: `song_id=${currentSongId}&score=${score}`,
+                body: body,
             })
             .then(response => response.json())
             .then(data => {

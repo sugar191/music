@@ -31,6 +31,7 @@
                     <option value="{{ r.id }}" {% if r.id|stringformat:"s" == region_id %}selected{% endif %}>{{ r.name }}</option>
                 {% endfor %}
             </select>
+            {% include "songs/partials/_karaoke_switch.html" %}
         </form>
     </div>
     <script>
@@ -79,7 +80,7 @@
                                         </a>
                                     </div>
                                 </td>
-                                <td class="score-cell">{{ item.total_score|floatformat:0 }}</td>
+                                <td class="score-cell">{{ item.total_score|ceil }}</td>
                             </tr>
                         {% endfor %}
                     </tbody>

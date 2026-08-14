@@ -93,8 +93,19 @@ def _resolve_region_and_user(request):
     return region_id, selected_user
 
 
+def _resolve_karaoke_mode(request):
+    """
+    全ランキング画面共通の「🎤（カラオケ採点で集計する）」切替の解決。
+    karaoke=1 のときだけ True。
+    """
+    return request.GET.get("karaoke") == "1"
+
+
 def _resolve_ranking_params(request):
-    """ランキング系4画面の共通パラメータ解決（region_id / selected_user / top_n）"""
+    """
+    ランキング系4画面の共通パラメータ解決
+    （region_id / selected_user / top_n / karaoke_mode）
+    """
     region_id, selected_user = _resolve_region_and_user(request)
 
     try:
@@ -102,19 +113,24 @@ def _resolve_ranking_params(request):
     except ValueError:
         top_n = 5
 
-    return region_id, selected_user, top_n
+    return region_id, selected_user, top_n, _resolve_karaoke_mode(request)
 
 
-def _ranking_dataset(kind, user_id, top_n, region_id):
+def _ranking_dataset(kind, user_id, top_n, region_id, karaoke_mode=False):
     """
     ランキング系4画面のデータを共通形式で組み立てる。
     kind: 'artist' | 'lyricist' | 'composer' | 'year'
+    karaoke_mode: True なら点数ではなくカラオケ採点で集計する
     戻り値: (rankings, insufficient_songs)
       rankings: [{parent_rank, parent_name, parent_link, total_score, songs:[...]}, ...]
     """
     if kind == "artist":
-        top_n_data = call_artist_song_top_n(user_id, top_n, region_id)
-        insufficient_data = call_artist_insufficient_songs(user_id, top_n, region_id)
+        top_n_data = call_artist_song_top_n(
+            user_id, top_n, region_id, karaoke_mode=karaoke_mode
+        )
+        insufficient_data = call_artist_insufficient_songs(
+            user_id, top_n, region_id, karaoke_mode=karaoke_mode
+        )
 
         # artistごとに曲をグルーピング
         grouped = defaultdict(list)
@@ -146,9 +162,11 @@ def _ranking_dataset(kind, user_id, top_n, region_id):
                 }
             )
     else:
-        top_n_data = call_creator_song_top_n(user_id, top_n, region_id, kind)
+        top_n_data = call_creator_song_top_n(
+            user_id, top_n, region_id, kind, karaoke_mode=karaoke_mode
+        )
         insufficient_data = call_creator_insufficient_songs(
-            user_id, top_n, region_id, kind
+            user_id, top_n, region_id, kind, karaoke_mode=karaoke_mode
         )
 
         # クリエイターごとに曲をグルーピング
@@ -217,10 +235,10 @@ def ranking_view(request):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    region_id, selected_user, top_n = _resolve_ranking_params(request)
+    region_id, selected_user, top_n, karaoke_mode = _resolve_ranking_params(request)
 
     rankings, insufficient_data = _ranking_dataset(
-        "artist", selected_user.id, top_n, region_id
+        "artist", selected_user.id, top_n, region_id, karaoke_mode
     )
 
     context = {
@@ -230,6 +248,7 @@ def ranking_view(request):
         "top_n": top_n,
         "region_id": region_id,
         "selected_user": selected_user,
+        "karaoke_mode": karaoke_mode,
         "is_own_page": selected_user == request.user,
     }
     context.update(_ranking_page_context("artist", rankings, insufficient_data))
@@ -244,10 +263,13 @@ def artist_list_view(request):
     users = User.objects.all().order_by("username")
 
     region_id, selected_user = _resolve_region_and_user(request)
+    karaoke_mode = _resolve_karaoke_mode(request)
 
     # 4つの top_n を1クエリでまとめて取得し、共通形式
     # (display_name/display_link/display_rank/total_score) に正規化する
-    rows = call_artist_top_n_multi(selected_user.id, region_id)
+    rows = call_artist_top_n_multi(
+        selected_user.id, region_id, karaoke_mode=karaoke_mode
+    )
 
     top_lists = []
     for n in TOP_NS:
@@ -278,6 +300,7 @@ def artist_list_view(request):
             "all_users": users,
             "region_id": region_id,
             "selected_user": selected_user,
+            "karaoke_mode": karaoke_mode,
             "kind": "artist",
             "kind_label": "歌手",
             "top_lists": top_lists,
@@ -294,10 +317,10 @@ def creator_list_view(request, creator_type):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    region_id, selected_user, top_n = _resolve_ranking_params(request)
+    region_id, selected_user, top_n, karaoke_mode = _resolve_ranking_params(request)
 
     rankings, insufficient_data = _ranking_dataset(
-        creator_type, selected_user.id, top_n, region_id
+        creator_type, selected_user.id, top_n, region_id, karaoke_mode
     )
 
     template_map = {
@@ -313,6 +336,7 @@ def creator_list_view(request, creator_type):
         "top_n": top_n,
         "region_id": region_id,
         "selected_user": selected_user,
+        "karaoke_mode": karaoke_mode,
         "is_own_page": selected_user == request.user,
         "creator_type": creator_type,
         "creator_label": CREATOR_TYPE_LABELS[creator_type],
@@ -361,7 +385,7 @@ def ranking_more_view(request):
     if kind not in RANKING_KIND_FLAGS:
         return JsonResponse({"error": "不正な kind です"}, status=400)
 
-    region_id, selected_user, top_n = _resolve_ranking_params(request)
+    region_id, selected_user, top_n, karaoke_mode = _resolve_ranking_params(request)
 
     def _offset(name):
         try:
@@ -373,7 +397,7 @@ def ranking_more_view(request):
     others_offset = _offset("others_offset")
 
     rankings, insufficient_songs = _ranking_dataset(
-        kind, selected_user.id, top_n, region_id
+        kind, selected_user.id, top_n, region_id, karaoke_mode
     )
 
     parents = rankings[parent_offset : parent_offset + RANKING_PARENT_PAGE_SIZE]
@@ -392,7 +416,11 @@ def ranking_more_view(request):
 
     parents_html = ""
     if parents:
-        card_context = {"rankings": parents, "is_own_page": is_own_page}
+        card_context = {
+            "rankings": parents,
+            "is_own_page": is_own_page,
+            "karaoke_mode": karaoke_mode,
+        }
         card_context.update(RANKING_KIND_FLAGS[kind])
         parents_html = render_to_string(
             "songs/partials/_ranking_cards.html", card_context, request=request
@@ -402,7 +430,11 @@ def ranking_more_view(request):
     if others:
         others_html = render_to_string(
             "songs/partials/_others_rows.html",
-            {"insufficient_songs": others, "is_own_page": is_own_page},
+            {
+                "insufficient_songs": others,
+                "is_own_page": is_own_page,
+                "karaoke_mode": karaoke_mode,
+            },
             request=request,
         )
 
@@ -431,11 +463,14 @@ def creator_grid_view(request, creator_type):
     users = User.objects.all().order_by("username")
 
     region_id, selected_user = _resolve_region_and_user(request)
+    karaoke_mode = _resolve_karaoke_mode(request)
 
     # 4つの top_n を1クエリでまとめて取得し、共通形式
     # (display_name/display_link/display_rank/total_score) に正規化する
     creator_songs_url = reverse("creator_songs")
-    rows = call_creator_top_n_multi(selected_user.id, region_id, creator_type)
+    rows = call_creator_top_n_multi(
+        selected_user.id, region_id, creator_type, karaoke_mode=karaoke_mode
+    )
 
     top_lists = []
     for n in TOP_NS:
@@ -464,6 +499,7 @@ def creator_grid_view(request, creator_type):
             "all_users": users,
             "region_id": region_id,
             "selected_user": selected_user,
+            "karaoke_mode": karaoke_mode,
             "kind": creator_type,
             "kind_label": CREATOR_TYPE_LABELS[creator_type],
             "top_lists": top_lists,
@@ -497,11 +533,14 @@ def creator_matrix_view(request, creator_type):
     users = User.objects.all().order_by("username")
 
     region_id, selected_user = _resolve_region_and_user(request)
+    karaoke_mode = _resolve_karaoke_mode(request)
 
     # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
     creator_songs_url = reverse("creator_songs")
     rows_by_creator = {}
-    for r in call_creator_top_n_multi(selected_user.id, region_id, creator_type):
+    for r in call_creator_top_n_multi(
+        selected_user.id, region_id, creator_type, karaoke_mode=karaoke_mode
+    ):
         if all(r[f"rank_{n}"] is None for n in TOP_NS):
             # どの top_n の条件も満たさないクリエイターは従来どおり表示しない
             continue
@@ -529,6 +568,7 @@ def creator_matrix_view(request, creator_type):
             "all_users": users,
             "region_id": region_id,
             "selected_user": selected_user,
+            "karaoke_mode": karaoke_mode,
             "rows": matrix_rows,
         },
     )
@@ -574,10 +614,13 @@ def artist_rank_matrix_view(request):
     users = User.objects.all().order_by("username")
 
     region_id, selected_user = _resolve_region_and_user(request)
+    karaoke_mode = _resolve_karaoke_mode(request)
 
     # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
     matrix_rows = []
-    for r in call_artist_top_n_multi(selected_user.id, region_id):
+    for r in call_artist_top_n_multi(
+        selected_user.id, region_id, karaoke_mode=karaoke_mode
+    ):
         if all(r[f"rank_{n}"] is None for n in TOP_NS):
             # どの top_n の条件も満たさない歌手は従来どおり表示しない
             continue
@@ -607,6 +650,7 @@ def artist_rank_matrix_view(request):
             "all_users": users,
             "region_id": region_id,
             "selected_user": selected_user,
+            "karaoke_mode": karaoke_mode,
             "rows": matrix_rows,
         },
     )
@@ -620,8 +664,7 @@ def _resolve_song_ranking_params(request):
     """全曲TOP系ビューの共通パラメータ解決（region_id / selected_user / karaoke_mode）"""
     region_id, selected_user = _resolve_region_and_user(request)
 
-    karaoke_mode = request.GET.get("karaoke") == "1"
-    return region_id, selected_user, karaoke_mode
+    return region_id, selected_user, _resolve_karaoke_mode(request)
 
 
 def _karaoke_ranking(selected_user, region_id):

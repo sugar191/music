@@ -1,0 +1,16 @@
+{% comment %}
+点数 / カラオケ点数 の表示切替（🎤）。全曲TOPと同じ見た目・同じ karaoke=1 パラメータ。
+ランキング系画面の top-bar 内の <form method="get"> の中に include すること
+（チェック変更でそのフォームを submit して再集計する）。
+必要なコンテキスト:
+  karaoke_mode: 現在カラオケ採点で集計しているか
+{% endcomment %}
+<style>
+    .karaoke-switch { display:inline-flex; align-items:center; gap:4px; margin-left:8px; cursor:pointer; user-select:none; }
+    .karaoke-switch input { margin:0; }
+    .karaoke-switch.on { background:#e6f0ff; border-radius:4px; padding:2px 6px; }
+</style>
+<label class="karaoke-switch{% if karaoke_mode %} on{% endif %}" title="カラオケ採点で集計する">
+    <input type="checkbox" name="karaoke" value="1" {% if karaoke_mode %}checked{% endif %} onchange="this.form.submit()">
+    🎤
+</label>
