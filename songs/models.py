@@ -99,6 +99,44 @@ class Artist(models.Model):
         )
         return credit
 
+    def add_alias(self, name, kind=None):
+        """
+        別表記を1件登録する（既にあれば既存を返す）。
+
+        名義（ArtistCredit）ではなく別表記（ArtistAlias）を足したいときはこちら。
+        「その名前で出た曲があるか」で使い分ける。
+        """
+        name = (name or "").strip()
+        if not name or name == self.name:
+            return None
+
+        alias, _created = ArtistAlias.objects.get_or_create(
+            artist=self,
+            name=name,
+            defaults={
+                "format_name": normalize(name),
+                "kind": kind or ArtistAlias.KIND_OTHER,
+            },
+        )
+        return alias
+
+    def search_names(self):
+        """
+        この歌手を指す名前を全部返す（本名・名義・別表記）。重複は除く。
+
+        外部API検索の代替形を組み立てるときなど、「この歌手を指しうる文字列」が
+        まとめて欲しい場面で使う。
+        """
+        names = [self.name]
+        names += [c.name for c in self.credits.all()]
+        names += [a.name for a in self.aliases.all()]
+        seen, out = set(), []
+        for n in names:
+            if n and n not in seen:
+                seen.add(n)
+                out.append(n)
+        return out
+
 
 class ArtistCredit(models.Model):
     """
@@ -143,14 +181,73 @@ class ArtistCredit(models.Model):
         return self.name
 
 
+class ArtistAlias(models.Model):
+    """
+    同じ歌手を指す「別表記」。ArtistCredit（名義）とは別物なので混同しないこと。
+
+    両者の判別基準は「Song が指す必要があるか」。
+      - 名義   … その名前で出た曲が実在し、曲ごとに使い分ける（安全地帯 と 玉置浩二）。
+                  Song.credit の参照先になる。
+      - 別表記 … 同じ相手を指す書き方違いで、曲を紐付ける必要はない
+                  （髙橋真梨子 と 高橋真梨子、ビートルズ と The Beatles）。
+                  検索で当てるためだけに持つ。
+
+    同じテーブルにまとめない理由は、Song.credit が別表記行を指せてしまうのを
+    DB で防げないため（MySQL では部分ユニークインデックスが使えず、アプリ側の
+    不変条件が増えるだけになる）。
+
+    1歌手に複数の別表記を持てる。format_name を Artist から追い出した結果、
+    外部API検索用の代替表記の置き場が無くなったが、その受け皿でもある。
+    """
+
+    KIND_SYMBOL = "symbol"
+    KIND_SCRIPT = "script"
+    KIND_KANA = "kana"
+    KIND_ORDER = "order"
+    KIND_VARIANT = "variant"
+    KIND_OTHER = "other"
+    KIND_CHOICES = [
+        (KIND_SYMBOL, "記号・空白の違い"),  # C-C-B / C‐C‐B
+        (KIND_SCRIPT, "英字・原語表記"),  # ビートルズ / The Beatles
+        (KIND_KANA, "読み・カナ表記"),  # ↑THE HIGH-LOWS↓ / ザ・ハイロウズ
+        (KIND_ORDER, "語順・区切りの違い"),  # 山内賢 & 和泉雅子 / 和泉雅子 & 山内賢
+        (KIND_VARIANT, "異体字"),  # 髙橋真梨子 / 高橋真梨子
+        (KIND_OTHER, "その他の表記ゆれ"),
+    ]
+
+    artist = models.ForeignKey(
+        Artist, on_delete=models.CASCADE, related_name="aliases"
+    )
+    name = models.CharField(max_length=100)
+    # 検索・突き合わせ用に NFKC 正規化 + 小文字化した別表記（songs.utils.normalize）
+    format_name = models.CharField(max_length=100, blank=True, default="")
+    # 分類。ロジックには効かないが、仕分けの結果を残しておくために持つ。
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_OTHER)
+
+    class Meta:
+        ordering = ["artist", "name"]
+        # 同じ Artist の中で別表記は重複させない
+        unique_together = (
+            "artist",
+            "name",
+        )
+        indexes = [
+            models.Index(fields=["format_name"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 def find_artist_by_any_name(name, region=None):
     """
     表記ゆれ・別名義を含めて Artist を1件探す（見つからなければ None）。
 
-    「桑田佳祐」で引いても Artist「サザンオールスターズ」に辿り着けるように、
-    Artist.name / Artist.format_name だけでなく ArtistCredit も見る。
-    別名義を Artist.format_name に入れていた頃はそちらで引っかかっていたが、
-    format_name が正規化名専用に戻ったので、その役目はここが引き継ぐ。
+    「桑田佳祐」（名義）でも「ザ・ハイロウズ」（別表記）でも、Artist 本体に
+    辿り着けるように、Artist.name / Artist.format_name に加えて
+    ArtistCredit と ArtistAlias の両方を見る。
+    別名義や別表記を Artist.format_name に入れていた頃はそちらで引っかかって
+    いたが、format_name が正規化名専用に戻ったので、その役目はここが引き継ぐ。
     """
     name = (name or "").strip()
     if not name:
@@ -167,6 +264,8 @@ def find_artist_by_any_name(name, region=None):
             | models.Q(format_name=fmt)
             | models.Q(credits__name=name)
             | models.Q(credits__format_name=fmt)
+            | models.Q(aliases__name=name)
+            | models.Q(aliases__format_name=fmt)
         )
         .distinct()
         .first()

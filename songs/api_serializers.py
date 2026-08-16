@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Artist, ArtistCredit, Song, Rating
+from .models import Artist, ArtistAlias, ArtistCredit, Song, Rating
 from .utils import normalize
 
 
@@ -27,6 +27,19 @@ class ArtistCreditSerializer(serializers.ModelSerializer):
     class Meta:
         model = ArtistCredit
         fields = ["id", "artist", "name", "format_name", "is_primary"]
+
+
+class ArtistAliasSerializer(serializers.ModelSerializer):
+    """
+    別表記（ArtistAlias）。名義（ArtistCredit）とは別テーブル。
+
+    Song から参照されないので id はキーとしては不要だが、同期スクリプトが
+    本番の行をそのまま入れ直せるように含めておく。
+    """
+
+    class Meta:
+        model = ArtistAlias
+        fields = ["id", "artist", "name", "format_name", "kind"]
 
 
 class SongSerializer(serializers.ModelSerializer):

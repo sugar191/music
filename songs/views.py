@@ -799,13 +799,15 @@ def song_list_view(request):
     )
 
     if query:
-        # 名義（例: 桑田佳祐）でも引けるようにする。曲は1名義しか持たないので
-        # OR で行が増えることはなく、distinct() は不要。
+        # 名義（例: 桑田佳祐）でも別表記（例: ザ・ハイロウズ）でも引けるようにする。
+        # 1歌手が別表記を複数持てるので、別表記の JOIN で同じ曲が複数行になる。
+        # distinct() が必要（名義だけなら曲は1件しか指さないので不要だった）。
         song_qs = song_qs.filter(
             Q(title__icontains=query)
             | Q(artist__name__icontains=query)
             | Q(credit__name__icontains=query)
-        )
+            | Q(artist__aliases__name__icontains=query)
+        ).distinct()
 
     # ソート：歌手名 → 自分の点数（降順）→ 曲名
     song_qs = song_qs.order_by("artist__name", "-user_score", "title")

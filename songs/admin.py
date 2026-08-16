@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (
     Artist,
+    ArtistAlias,
     ArtistCredit,
     Song,
     Rating,
@@ -40,10 +41,18 @@ class ArtistCreditInline(admin.TabularInline):
     fields = ["name", "format_name", "is_primary"]
 
 
+class ArtistAliasInline(admin.TabularInline):
+    """歌手の編集画面で別表記を追加・編集できるようにする。"""
+
+    model = ArtistAlias
+    extra = 0
+    fields = ["name", "format_name", "kind"]
+
+
 class ArtistAdmin(BaseResourceAdmin):
     resource_class = ArtistResource
     search_fields = ["name"]
-    inlines = [ArtistCreditInline]
+    inlines = [ArtistCreditInline, ArtistAliasInline]
 
 
 class ArtistCreditResource(resources.ModelResource):
@@ -55,6 +64,19 @@ class ArtistCreditAdmin(BaseResourceAdmin):
     resource_class = ArtistCreditResource
     list_display = ["name", "artist", "is_primary", "format_name"]
     list_filter = ["is_primary"]
+    list_select_related = ["artist"]
+    search_fields = ["name", "artist__name"]
+
+
+class ArtistAliasResource(resources.ModelResource):
+    class Meta:
+        model = ArtistAlias
+
+
+class ArtistAliasAdmin(BaseResourceAdmin):
+    resource_class = ArtistAliasResource
+    list_display = ["name", "artist", "kind", "format_name"]
+    list_filter = ["kind"]
     list_select_related = ["artist"]
     search_fields = ["name", "artist__name"]
 
@@ -114,6 +136,7 @@ class UserProfileAdmin(BaseResourceAdmin):
 admin.site.register(MusicRegion, MusicRegionAdmin)
 admin.site.register(Artist, ArtistAdmin)
 admin.site.register(ArtistCredit, ArtistCreditAdmin)
+admin.site.register(ArtistAlias, ArtistAliasAdmin)
 admin.site.register(Song, SongAdmin)
 admin.site.register(Rating, RatingAdmin)
 admin.site.register(ArtistYearPreference, ArtistYearPreferenceAdmin)

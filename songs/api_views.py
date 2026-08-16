@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import (
     Artist,
+    ArtistAlias,
     ArtistCredit,
     Song,
     Rating,
@@ -18,6 +19,7 @@ from .models import (
 )
 from .api_serializers import (
     ArtistSerializer,
+    ArtistAliasSerializer,
     ArtistCreditSerializer,
     SongSerializer,
     RatingRowSerializer,
@@ -46,24 +48,28 @@ def find_song_loose_readonly(artist_name: str, title: str):
     1) 正規化済みの format_name / format_title で厳密一致
     2) 見つからなければ元の name / title の大文字小文字無視一致
 
-    歌手名は Artist だけでなく名義（ArtistCredit）とも突き合わせる。
-    「桑田佳祐」＋「白い恋人達」で来ても、Artist「サザンオールスターズ」に
-    ぶら下がった曲を返せるようにするため。
+    歌手名は Artist だけでなく名義（ArtistCredit）・別表記（ArtistAlias）とも
+    突き合わせる。「桑田佳祐」＋「白い恋人達」でも「ザ・ハイロウズ」＋曲名でも、
+    Artist にぶら下がった曲を返せるようにするため。
     """
     fn = normalize(artist_name)
     ft = normalize(title)
+    stripped = artist_name.strip()
     qs = Song.objects.select_related("artist", "credit")
     # 1) 厳密一致（format_*）
     song = qs.filter(
-        Q(artist__format_name=fn) | Q(credit__format_name=fn),
+        Q(artist__format_name=fn)
+        | Q(credit__format_name=fn)
+        | Q(artist__aliases__format_name=fn),
         format_title=ft,
     ).first()
     if song:
         return song
     # 2) フォールバック（DBは書かない）
     return qs.filter(
-        Q(artist__name__iexact=artist_name.strip())
-        | Q(credit__name__iexact=artist_name.strip()),
+        Q(artist__name__iexact=stripped)
+        | Q(credit__name__iexact=stripped)
+        | Q(artist__aliases__name__iexact=stripped),
         title__iexact=title.strip(),
     ).first()
 
@@ -458,6 +464,19 @@ def artist_credit_list(request):
     """
     qs = ArtistCredit.objects.all().order_by("id")
     data = ArtistCreditSerializer(qs, many=True).data
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def artist_alias_list(request):
+    """
+    GET /api/artist_aliases/
+    別表記の一覧。Song からは参照されないので投入順の制約は無いが、
+    Artist を消すと CASCADE で一緒に消えるため、同期では Artist の後に流す。
+    """
+    qs = ArtistAlias.objects.all().order_by("id")
+    data = ArtistAliasSerializer(qs, many=True).data
     return Response(data)
 
 

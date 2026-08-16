@@ -7,6 +7,8 @@ urlpatterns = [
     # 同期スクリプトは artists/ → artist_credits/ → songs/ の順で流し込む。
     # 末尾の songs/update_credits は作詞・作曲のことで、名義とは別物。
     path("artist_credits/", api_views.artist_credit_list),
+    # 別表記（ArtistAlias）の一覧。名義とは別テーブル。
+    path("artist_aliases/", api_views.artist_alias_list),
     path("songs/", api_views.song_list),
     path(
         "songs_rating",
