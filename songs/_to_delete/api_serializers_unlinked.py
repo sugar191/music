@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Artist, ArtistCredit, Song, Rating
+from .models import Artist, Song, Rating
 from .utils import normalize
 
 
@@ -15,24 +15,8 @@ class ArtistSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class ArtistCreditSerializer(serializers.ModelSerializer):
-    """
-    名義（ArtistCredit）。artist は id を返す。
-
-    同期スクリプトが本番の id をそのまま入れ直せるよう id を含める。
-    Song.credit が名義の id を参照しているので、ここがズレると
-    曲と名義の対応が壊れる。
-    """
-
-    class Meta:
-        model = ArtistCredit
-        fields = ["id", "artist", "name", "format_name", "is_primary"]
-
-
 class SongSerializer(serializers.ModelSerializer):
     artist_name = serializers.CharField(write_only=True, required=False)
-    # credit は名義の id。人が読むとき用に名前も添える（読み取り専用）。
-    credit_name = serializers.CharField(source="credit.name", read_only=True)
 
     class Meta:
         model = Song
@@ -42,8 +26,6 @@ class SongSerializer(serializers.ModelSerializer):
             "format_title",
             "artist",
             "artist_name",
-            "credit",
-            "credit_name",
             "is_cover",
             "lyricist",
             "composer",

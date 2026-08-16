@@ -3,10 +3,6 @@ from . import api_views
 
 urlpatterns = [
     path("artists/", api_views.artist_list),
-    # 名義（ArtistCredit）の一覧。Song.credit がこの id を参照しているので、
-    # 同期スクリプトは artists/ → artist_credits/ → songs/ の順で流し込む。
-    # 末尾の songs/update_credits は作詞・作曲のことで、名義とは別物。
-    path("artist_credits/", api_views.artist_credit_list),
     path("songs/", api_views.song_list),
     path(
         "songs_rating",

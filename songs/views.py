@@ -32,6 +32,7 @@ from .models import (
     ArtistYearPreference,
     UserProfile,
 )
+from .utils import normalize
 from .services import (
     TOP_NS,
     call_artist_song_top_n,
@@ -793,13 +794,17 @@ def song_list_view(request):
         user=request.user, song=OuterRef("pk")
     ).values("score")[:1]
 
-    song_qs = Song.objects.select_related("artist").annotate(
+    song_qs = Song.objects.select_related("artist", "credit").annotate(
         user_score=Subquery(user_rating_subquery, output_field=IntegerField())
     )
 
     if query:
+        # 名義（例: 桑田佳祐）でも引けるようにする。曲は1名義しか持たないので
+        # OR で行が増えることはなく、distinct() は不要。
         song_qs = song_qs.filter(
-            Q(title__icontains=query) | Q(artist__name__icontains=query)
+            Q(title__icontains=query)
+            | Q(artist__name__icontains=query)
+            | Q(credit__name__icontains=query)
         )
 
     # ソート：歌手名 → 自分の点数（降順）→ 曲名
@@ -1136,21 +1141,48 @@ def _parse_year(raw):
         return None
 
 
-def _upsert_song(artist, title, *, is_cover, lyricist, composer, year):
+def _get_or_create_artist(name, region):
+    """
+    歌手を name+region で取得 or 作成する（曲追加画面の単一・複数モード共通）。
+
+    Artist.format_name（正規化名）と主名義の ArtistCredit を必ず用意する。
+    素の get_or_create だと format_name が NULL のままになり、
+    api_views 側の正規化名での突き合わせに引っかからない歌手ができてしまう。
+    """
+    artist, created = Artist.objects.get_or_create(
+        name=name,
+        region=region,
+        defaults={"format_name": normalize(name)},
+    )
+    if not artist.format_name:
+        artist.format_name = normalize(name)
+        artist.save(update_fields=["format_name"])
+    artist.ensure_primary_credit()
+    return artist, created
+
+
+def _upsert_song(artist, title, *, is_cover, lyricist, composer, year, credit=None):
     """
     曲を1件登録／更新する（曲追加画面の単一・複数モード共通）。
 
     - 既存曲があれば is_cover は常に上書き、
       作詞/作曲/年は「入力があったときだけ」上書きする（空欄で既存値を消さない）。
     - 同時実行で UNIQUE(title, artist) に衝突した場合も取り直して更新に回す。
+    - credit（名義）は新規作成のときだけ設定する。未指定なら主名義。
+      既存曲の名義を上書きしないのは、admin で振り分けた結果を
+      曲追加画面からの再送信で潰さないため。
     """
     song = Song.objects.filter(title=title, artist=artist).first()
 
     if song is None:
+        if credit is None:
+            credit = artist.ensure_primary_credit()
         try:
             return Song.objects.create(
                 title=title,
+                format_title=normalize(title),
                 artist=artist,
+                credit=credit,
                 is_cover=is_cover,
                 lyricist=lyricist or None,
                 composer=composer or None,
@@ -1288,9 +1320,7 @@ def bulk_add_view(request):
                 except MusicRegion.DoesNotExist:
                     return render_form("選択された地域が存在しません。")
                 # Artist の一意制約は (name, region) なので、検索条件にも region を含める
-                artist, _ = Artist.objects.get_or_create(
-                    name=new_artist_name, region=region
-                )
+                artist, _ = _get_or_create_artist(new_artist_name, region)
             else:
                 return render_form("歌手を選択するか新規入力してください。")
 
@@ -1341,9 +1371,7 @@ def bulk_add_view(request):
                     except MusicRegion.DoesNotExist:
                         continue
                     # Artist の一意制約は (name, region) なので region も検索条件に含める
-                    artist, _ = Artist.objects.get_or_create(
-                        name=new_artist_name_i, region=region
-                    )
+                    artist, _ = _get_or_create_artist(new_artist_name_i, region)
                 else:
                     continue
 

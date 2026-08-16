@@ -8,9 +8,17 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Artist, Song, Rating, MusicRegion
+from .models import (
+    Artist,
+    ArtistCredit,
+    Song,
+    Rating,
+    MusicRegion,
+    find_artist_by_any_name,
+)
 from .api_serializers import (
     ArtistSerializer,
+    ArtistCreditSerializer,
     SongSerializer,
     RatingRowSerializer,
 )
@@ -37,17 +45,26 @@ def find_song_loose_readonly(artist_name: str, title: str):
     歌手名＋曲名から曲を探す（読み取り専用。format_* の補正は行わない）。
     1) 正規化済みの format_name / format_title で厳密一致
     2) 見つからなければ元の name / title の大文字小文字無視一致
+
+    歌手名は Artist だけでなく名義（ArtistCredit）とも突き合わせる。
+    「桑田佳祐」＋「白い恋人達」で来ても、Artist「サザンオールスターズ」に
+    ぶら下がった曲を返せるようにするため。
     """
     fn = normalize(artist_name)
     ft = normalize(title)
-    qs = Song.objects.select_related("artist")
+    qs = Song.objects.select_related("artist", "credit")
     # 1) 厳密一致（format_*）
-    song = qs.filter(artist__format_name=fn, format_title=ft).first()
+    song = qs.filter(
+        Q(artist__format_name=fn) | Q(credit__format_name=fn),
+        format_title=ft,
+    ).first()
     if song:
         return song
     # 2) フォールバック（DBは書かない）
     return qs.filter(
-        artist__name__iexact=artist_name.strip(), title__iexact=title.strip()
+        Q(artist__name__iexact=artist_name.strip())
+        | Q(credit__name__iexact=artist_name.strip()),
+        title__iexact=title.strip(),
     ).first()
 
 
@@ -224,13 +241,15 @@ def create_song_with_artist(request):
       "artist_name": "浜田省吾",
       "title": "もうひとつの土曜日",
       "region_id": 1,
+      "credit_name": "桑田佳祐",  # 任意。この曲の名義。未指定なら主名義
       "is_cover": false,
       "lyricist": "...",   # 任意。未指定/空なら NULL のまま登録
       "composer": "...",   # 任意。未指定/空なら NULL のまま登録
       "year": 1985         # 任意。未指定/空/不正値なら NULL のまま登録
     }
     成功時: 201
-      { "artist_id": 123, "song_id": 456, "created_artist": true/false, "created_song": true }
+      { "artist_id": 123, "song_id": 456, "credit_id": 7, "credit_name": "桑田佳祐",
+        "created_artist": true/false, "created_song": true }
     既存曲がある場合: 409（lyricist/composer/year は更新しない）
       { "detail": "song already exists", "artist_id": 123, "song_id": 456 }
     バリデーション: 400
@@ -240,6 +259,8 @@ def create_song_with_artist(request):
     artist_name = (data.get("artist_name") or "").strip()
     title = (data.get("title") or "").strip()
     region_id = data.get("region_id")
+    # この曲の名義。未指定なら主名義（＝Artist.name と同じ表記）になる。
+    credit_name = (data.get("credit_name") or "").strip()
     is_cover = bool(data.get("is_cover", False))
     # 任意項目：未指定 or 空文字なら None（DB は NULL のまま）
     lyricist = (data.get("lyricist") or "").strip() or None
@@ -265,14 +286,11 @@ def create_song_with_artist(request):
     except (MusicRegion.DoesNotExist, ValueError):
         return Response({"detail": "region_id が不正です"}, status=400)
 
-    # Artist を name+region で取得 or 作成（正規化も保存）
+    # Artist を name+region で取得 or 作成（正規化も保存）。
+    # 別名義（例: 桑田佳祐）で来てもサザンの Artist に辿り着けるよう、
+    # 探索は名義テーブルまで見る find_artist_by_any_name に任せる。
     fmt_artist = normalize(artist_name)
-    # (name OR format_name) + region で既存探索
-    artist = (
-        Artist.objects.filter(region=region)
-        .filter(Q(name=artist_name) | Q(format_name=fmt_artist))
-        .first()
-    )
+    artist = find_artist_by_any_name(artist_name, region=region)
 
     if artist:
         created_artist = False
@@ -292,14 +310,20 @@ def create_song_with_artist(request):
             created_artist = True
         except IntegrityError:
             # 競合（並行リクエスト等）対策：もう一度取り直す
-            artist = (
-                Artist.objects.filter(region=region)
-                .filter(Q(name=artist_name) | Q(format_name=fmt_artist))
-                .first()
-            )
+            artist = find_artist_by_any_name(artist_name, region=region)
             if not artist:
                 raise
             created_artist = False
+
+    # 名義を決める。
+    # credit_name 未指定なら主名義。artist_name 自体が別名義だった場合
+    # （「桑田佳祐」で登録しに来た場合）は、それをそのまま名義として扱う。
+    if credit_name:
+        credit = artist.resolve_credit(credit_name)
+    elif artist.name != artist_name:
+        credit = artist.resolve_credit(artist_name)
+    else:
+        credit = artist.ensure_primary_credit()
 
     # Song の重複チェック（title+artist）
     fmt_title = normalize(title)
@@ -320,6 +344,7 @@ def create_song_with_artist(request):
             title=title,
             format_title=fmt_title,
             artist=artist,
+            credit=credit,
             is_cover=is_cover,
             lyricist=lyricist,
             composer=composer,
@@ -341,6 +366,8 @@ def create_song_with_artist(request):
         {
             "artist_id": artist.id,
             "song_id": song.id,
+            "credit_id": credit.id,
+            "credit_name": credit.name,
             "created_artist": created_artist,
             "created_song": True,
         },
@@ -423,7 +450,20 @@ def artist_list(request):
 
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
+def artist_credit_list(request):
+    """
+    GET /api/artist_credits/
+    名義の一覧。Song.credit がこの id を指すので、
+    同期スクリプトは Artist の後・Song の前にこれを流し込む必要がある。
+    """
+    qs = ArtistCredit.objects.all().order_by("id")
+    data = ArtistCreditSerializer(qs, many=True).data
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
 def song_list(request):
-    qs = Song.objects.all().order_by("id").select_related("artist")
+    qs = Song.objects.all().order_by("id").select_related("artist", "credit")
     data = SongSerializer(qs, many=True).data
     return Response(data)
