@@ -24,6 +24,7 @@
         </select>
     </form>
     <a href="{% url 'bulk_add_songs' %}?artist_id={{ artist.id }}">曲追加</a>
+    <a href="#" id="open-add-credit-link" style="margin-left: 10px">名義追加</a>
     <label class="mobile-only mobile-karaoke-switch" title="ONで🎤採点列、OFFで点数列を表示">
         <input type="checkbox" id="mobile-karaoke-switch">
         🎤
@@ -36,6 +37,12 @@
             <input type="text" id="bulk-lyricist-input" list="lyricist-suggestions" placeholder="作詞（一括）">
             <input type="text" id="bulk-composer-input" list="composer-suggestions" placeholder="作曲（一括）">
             <input type="number" id="bulk-year-input" list="year-suggestions" placeholder="年（一括）">
+            <select id="bulk-credit-select" class="bulk-credit-select">
+                <option value="">名義（一括）</option>
+                {% for c in credits %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+            </select>
             <button type="button" id="select-empty-credits-btn">未入力を一括選択</button>
             <button type="button" id="bulk-apply-credits-btn">一括入力</button>
         </div>
@@ -52,6 +59,7 @@
                 <th class="pc-cell">作詞</th>
                 <th class="pc-cell">作曲</th>
                 <th class="pc-cell">年</th>
+                <th class="pc-cell">名義</th>
                 <th class="pc-cell"><input type="checkbox" id="bulk-select-all"></th>
             </tr>
         </thead>
@@ -117,13 +125,20 @@
                         <input type="number" class="credit-input year-input" data-song-id="{{ song.song_id }}" data-field="year" list="year-suggestions" value="" placeholder="年">
                     {% endif %}
                 </td>
+                <td class="pc-cell name-credit-cell" data-song-id="{{ song.song_id }}">
+                    <select class="credit-select" data-song-id="{{ song.song_id }}" data-current="{{ song.credit_id }}">
+                        {% for c in credits %}
+                            <option value="{{ c.id }}" {% if c.id == song.credit_id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
                 <td class="pc-cell">
                     <input type="checkbox" class="bulk-row-check" data-song-id="{{ song.song_id }}">
                 </td>
             </tr>
             {% endwith %}
             {% empty %}
-                <tr><td colspan="9">曲が見つかりませんでした。</td></tr>
+                <tr><td colspan="10">曲が見つかりませんでした。</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -143,6 +158,22 @@
         {% endfor %}
     </datalist>
 </div>
+<!-- 名義追加モーダル -->
+<div id="addCreditModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" id="addCreditClose">&times;</span>
+        <h3>名義を追加</h3>
+        <p style="font-size:0.85em; text-align:left; color:#555;">
+            {{ artist.name }} が曲を出すときに使う別の名前を登録します。<br>
+            例: サザンオールスターズ → 桑田佳祐<br>
+            単なる表記違い（The Beatles / ビートルズ など）は名義ではないので、
+            管理画面の「別表記」に登録してください。
+        </p>
+        <input type="text" id="addCreditInput" placeholder="名義（例: 桑田佳祐）" style="width:100%;">
+        <p id="addCreditMessage" style="font-size:0.85em; min-height:1.2em; margin:6px 0;"></p>
+        <button type="button" id="addCreditSaveBtn">登録</button>
+    </div>
+</div>
 <p><a href="{{ request.META.HTTP_REFERER }}">← 戻る</a></p>
 {% endblock %}
 
@@ -154,6 +185,10 @@
         const updateKaraokeScoreUrl = "{% url 'update_karaoke_score' %}";
         const updateCoverUrl = "{% url 'update_cover' %}";
         const updateCreditsUrl = "{% url 'update_song_credits' %}";
+        // 名義（Song.credit）用。上の updateCreditsUrl は作詞・作曲・年なので別物。
+        const updateSongCreditUrl = "{% url 'update_song_credit' %}";
+        const addArtistCreditUrl = "{% url 'add_artist_credit' %}";
+        const artistId = "{{ artist.id }}";
         const csrfToken = "{{ csrf_token }}";
 
         // 行の data 属性を更新するヘルパ
@@ -363,6 +398,7 @@
         const bulkLyricistInput = document.getElementById("bulk-lyricist-input");
         const bulkComposerInput = document.getElementById("bulk-composer-input");
         const bulkYearInput = document.getElementById("bulk-year-input");
+        const bulkCreditSelect = document.getElementById("bulk-credit-select");
         const selectEmptyBtn = document.getElementById("select-empty-credits-btn");
         const bulkApplyBtn = document.getElementById("bulk-apply-credits-btn");
         const selectAllCheckbox = document.getElementById("bulk-select-all");
@@ -434,9 +470,10 @@
                 const lyValue = bulkLyricistInput ? bulkLyricistInput.value.trim() : "";
                 const coValue = bulkComposerInput ? bulkComposerInput.value.trim() : "";
                 const yrValue = bulkYearInput ? bulkYearInput.value.trim() : "";
+                const crValue = bulkCreditSelect ? bulkCreditSelect.value : "";
 
-                if (!lyValue && !coValue && !yrValue) {
-                    alert("作詞・作曲・年のいずれかを入力してください。");
+                if (!lyValue && !coValue && !yrValue && !crValue) {
+                    alert("作詞・作曲・年・名義のいずれかを入力してください。");
                     return;
                 }
 
@@ -512,6 +549,29 @@
                             })
                         );
                     }
+
+                    // 名義は他の3つと別エンドポイント（値が id なので扱いも別）
+                    if (crValue) {
+                        requests.push(
+                            fetch(updateSongCreditUrl, {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "X-CSRFToken": csrfToken,
+                                },
+                                body: `song_id=${encodeURIComponent(songId)}&credit_id=${encodeURIComponent(crValue)}`,
+                            }).then(r => r.json()).then(d => {
+                                if (d && d.success) {
+                                    const sel = document.querySelector(`.credit-select[data-song-id="${songId}"]`);
+                                    if (sel) {
+                                        sel.value = String(d.credit_id);
+                                        sel.dataset.current = String(d.credit_id);
+                                    }
+                                }
+                                return d;
+                            })
+                        );
+                    }
                 });
 
                 Promise.all(requests)
@@ -526,6 +586,7 @@
                         if (bulkLyricistInput) bulkLyricistInput.value = "";
                         if (bulkComposerInput) bulkComposerInput.value = "";
                         if (bulkYearInput) bulkYearInput.value = "";
+                        if (bulkCreditSelect) bulkCreditSelect.value = "";
                         document.querySelectorAll(".bulk-row-check").forEach(cb => { cb.checked = false; });
                         if (selectAllCheckbox) {
                             selectAllCheckbox.checked = false;
@@ -539,6 +600,165 @@
                     .finally(() => {
                         hideOverlay();
                     });
+            });
+        }
+
+        // ===== 名義（Song.credit）の変更 =====
+        // 行ごとのドロップダウンは change で即保存する（点数やカバーと同じ挙動）。
+        // 追加された名義でドロップダウンを作り直すので、イベント委譲にしている。
+        document.addEventListener("change", function (e) {
+            const sel = e.target.closest(".credit-select");
+            if (!sel) return;
+
+            const songId = sel.dataset.songId;
+            const creditId = sel.value;
+            const previous = sel.dataset.current;
+
+            showOverlay();
+
+            fetch(updateSongCreditUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-CSRFToken": csrfToken,
+                },
+                body: `song_id=${encodeURIComponent(songId)}&credit_id=${encodeURIComponent(creditId)}`,
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    sel.dataset.current = String(data.credit_id);
+                } else {
+                    alert(`名義の保存エラー: ${data.error}`);
+                    // 保存できなかったので表示を元に戻す
+                    if (previous) sel.value = previous;
+                }
+            })
+            .catch(error => {
+                alert("名義の保存中にエラーが発生しました");
+                console.error(error);
+                if (previous) sel.value = previous;
+            })
+            .finally(() => {
+                hideOverlay();
+            });
+        });
+
+        // ===== 名義追加モーダル =====
+        const addCreditLink = document.getElementById("open-add-credit-link");
+        const addCreditModal = document.getElementById("addCreditModal");
+        const addCreditInput = document.getElementById("addCreditInput");
+        const addCreditSaveBtn = document.getElementById("addCreditSaveBtn");
+        const addCreditClose = document.getElementById("addCreditClose");
+        const addCreditMessage = document.getElementById("addCreditMessage");
+
+        function setAddCreditMessage(text, isError) {
+            if (!addCreditMessage) return;
+            addCreditMessage.textContent = text || "";
+            addCreditMessage.style.color = isError ? "#c00" : "#060";
+        }
+
+        function openAddCreditModal() {
+            if (!addCreditModal) return;
+            addCreditInput.value = "";
+            setAddCreditMessage("", false);
+            addCreditModal.style.display = "block";
+            addCreditInput.focus();
+        }
+
+        function closeAddCreditModal() {
+            if (addCreditModal) addCreditModal.style.display = "none";
+        }
+
+        // 追加後に全ドロップダウンの選択肢を作り直す。
+        // 各行の選択状態は data-current（保存済みの値）を正として復元するので、
+        // 未保存の見た目だけの変更が混ざることはない。
+        function refreshCreditOptions(credits) {
+            const buildOptions = (selectedId) => credits.map(c => {
+                const sel = String(c.id) === String(selectedId) ? " selected" : "";
+                const label = escapeHtml(c.name);
+                return `<option value="${c.id}"${sel}>${label}</option>`;
+            }).join("");
+
+            document.querySelectorAll(".credit-select").forEach(sel => {
+                const current = sel.dataset.current;
+                sel.innerHTML = buildOptions(current);
+                sel.value = current;
+            });
+
+            if (bulkCreditSelect) {
+                const keep = bulkCreditSelect.value;
+                bulkCreditSelect.innerHTML =
+                    `<option value="">名義（一括）</option>` + buildOptions(keep);
+                bulkCreditSelect.value = keep;
+            }
+        }
+
+        if (addCreditLink) {
+            addCreditLink.addEventListener("click", function (e) {
+                e.preventDefault();
+                openAddCreditModal();
+            });
+        }
+        if (addCreditClose) {
+            addCreditClose.addEventListener("click", closeAddCreditModal);
+        }
+        if (addCreditModal) {
+            addCreditModal.addEventListener("click", function (e) {
+                // 背景クリックで閉じる（モーダル本体のクリックでは閉じない）
+                if (e.target === addCreditModal) closeAddCreditModal();
+            });
+        }
+        if (addCreditInput) {
+            addCreditInput.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCreditSaveBtn.click();
+                }
+            });
+        }
+
+        if (addCreditSaveBtn) {
+            addCreditSaveBtn.addEventListener("click", function () {
+                const name = addCreditInput ? addCreditInput.value.trim() : "";
+                if (!name) {
+                    setAddCreditMessage("名義を入力してください。", true);
+                    return;
+                }
+
+                showOverlay();
+
+                fetch(addArtistCreditUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "X-CSRFToken": csrfToken,
+                    },
+                    body: `artist_id=${encodeURIComponent(artistId)}&name=${encodeURIComponent(name)}`,
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        setAddCreditMessage(data.error || "登録できませんでした。", true);
+                        return;
+                    }
+                    refreshCreditOptions(data.credits);
+                    if (data.warning) {
+                        setAddCreditMessage(data.warning, true);
+                    } else if (data.created) {
+                        setAddCreditMessage(`「${name}」を追加しました。`, false);
+                        addCreditInput.value = "";
+                    } else {
+                        setAddCreditMessage(`「${name}」は既に登録済みです。`, false);
+                    }
+                })
+                .catch(error => {
+                    setAddCreditMessage("通信エラーが発生しました。", true);
+                    console.error(error);
+                })
+                .finally(() => {
+                    hideOverlay();
+                });
             });
         }
 

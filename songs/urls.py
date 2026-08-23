@@ -10,6 +10,8 @@ from .views import (
     update_karaoke_score_view,
     update_cover_view,
     update_song_credits_view,
+    update_song_credit_view,
+    add_artist_credit_view,
     bulk_add_view,
     signup_view,
     artist_song_list_view,
@@ -47,6 +49,9 @@ urlpatterns = [
     ),
     path("update-cover/", update_cover_view, name="update_cover"),
     path("update-credits/", update_song_credits_view, name="update_song_credits"),
+    # 上は作詞・作曲・年、下は Song.credit（名義）。紛らわしいので取り違え注意。
+    path("update-song-credit/", update_song_credit_view, name="update_song_credit"),
+    path("artist-credits/add/", add_artist_credit_view, name="add_artist_credit"),
     path("lyricists/", creator_list_view, {"creator_type": "lyricist"}, name="lyricist_list"),
     path("composers/", creator_list_view, {"creator_type": "composer"}, name="composer_list"),
     path("years/", creator_list_view, {"creator_type": "year"}, name="year_list"),

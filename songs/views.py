@@ -26,6 +26,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .models import (
     Artist,
+    ArtistCredit,
     Song,
     Rating,
     MusicRegion,
@@ -609,6 +610,91 @@ def update_song_credits_view(request):
     return JsonResponse({"success": True, "value": value_to_save})
 
 
+# 曲の名義（Song.credit）を切り替えるAJAXエンドポイント。
+#
+# 注意: すぐ上の update_song_credits_view とは別物。名前が紛らわしいので要注意。
+#   update_song_credits_view … 作詞・作曲・年（誰が作ったか）
+#   この関数                 … Song.credit（どの名義でリリースされたか）
+@require_POST
+@login_required
+def update_song_credit_view(request):
+    song_id = request.POST.get("song_id")
+    credit_id = request.POST.get("credit_id")
+
+    try:
+        song = Song.objects.only("id", "artist_id", "credit_id").get(pk=song_id)
+    except (Song.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"success": False, "error": "曲が存在しません"}, status=404)
+
+    try:
+        credit = ArtistCredit.objects.get(pk=credit_id)
+    except (ArtistCredit.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"success": False, "error": "名義が存在しません"}, status=404)
+
+    # 別の歌手の名義を付けられないようにする。
+    # Song.clean() の同じチェックは ModelForm 経由でしか走らないので、
+    # AJAX から直接叩かれるここでも見る必要がある。
+    if credit.artist_id != song.artist_id:
+        return JsonResponse(
+            {"success": False, "error": "別の歌手の名義は指定できません"}, status=400
+        )
+
+    song.credit = credit
+    song.save(update_fields=["credit"])
+    return JsonResponse(
+        {
+            "success": True,
+            "credit_id": credit.id,
+            "credit_name": credit.name,
+            "is_primary": credit.is_primary,
+        }
+    )
+
+
+# 名義を1件追加するAJAXエンドポイント（曲一覧の「名義追加」ポップアップ用）。
+# 追加後のドロップダウンを作り直せるよう、その歌手の名義一覧を返す。
+@require_POST
+@login_required
+def add_artist_credit_view(request):
+    artist_id = request.POST.get("artist_id")
+    name = (request.POST.get("name") or "").strip()
+
+    if not name:
+        return JsonResponse(
+            {"success": False, "error": "名義を入力してください"}, status=400
+        )
+
+    try:
+        artist = Artist.objects.get(pk=artist_id)
+    except (Artist.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"success": False, "error": "歌手が存在しません"}, status=404)
+
+    # resolve_credit は表記ゆれ（正規化名一致）でも既存を返すので、
+    # 「作られたかどうか」は件数の増減で見る。
+    before = artist.credits.count()
+    credit = artist.resolve_credit(name)
+    created = artist.credits.count() > before
+
+    # 同じ表記が別表記（ArtistAlias）にもあると二重管理になる。
+    # どちらを消すかは判断できないので、画面に出して気づけるようにするだけ。
+    warning = ""
+    if artist.aliases.filter(name=name).exists():
+        warning = f"「{name}」は別表記にも登録されています。どちらかに寄せてください。"
+
+    return JsonResponse(
+        {
+            "success": True,
+            "created": created,
+            "warning": warning,
+            "credit_id": credit.id,
+            "credits": [
+                {"id": c.id, "name": c.name, "is_primary": c.is_primary}
+                for c in artist.credits.all()
+            ],
+        }
+    )
+
+
 @login_required
 def artist_rank_matrix_view(request):
     regions = MusicRegion.objects.all()
@@ -862,7 +948,7 @@ def artist_song_list_view(request, artist_id):
                 output_field=DecimalField(max_digits=6, decimal_places=3),
             ),
         )
-        .select_related("artist")
+        .select_related("artist", "credit")
         .order_by("is_cover", "-user_score", Lower("title"))
     )
 
@@ -889,6 +975,8 @@ def artist_song_list_view(request, artist_id):
                     "composer": song.composer,
                     "year": song.year,
                     "is_cover": song.is_cover,
+                    "credit_id": song.credit_id,
+                    "credit_name": song.credit.name,
                 },
                 "rank": current_rank,
                 "user_score": song.user_score,
@@ -905,6 +993,9 @@ def artist_song_list_view(request, artist_id):
     composer_suggestions = sorted({s.composer for s in songs if s.composer})
     year_suggestions = sorted({s.year for s in songs if s.year})
 
+    # 名義ドロップダウンの選択肢。Meta.ordering により主名義が先頭に来る。
+    credits = list(artist.credits.all())
+
     return render(
         request,
         "songs/artist_song_list.html",
@@ -917,6 +1008,7 @@ def artist_song_list_view(request, artist_id):
             "lyricist_suggestions": lyricist_suggestions,
             "composer_suggestions": composer_suggestions,
             "year_suggestions": year_suggestions,
+            "credits": credits,
         },
     )
 
@@ -962,7 +1054,7 @@ def creator_song_list_view(request):
         .annotate(
             user_score=Subquery(user_score_subquery, output_field=IntegerField())
         )
-        .select_related("artist")
+        .select_related("artist", "credit")
         .order_by("is_cover", "-user_score", Lower("title"))
     )
 
@@ -986,6 +1078,8 @@ def creator_song_list_view(request):
                     "composer": song.composer,
                     "year": song.year,
                     "is_cover": song.is_cover,
+                    "credit_id": song.credit_id,
+                    "credit_name": song.credit.name,
                 },
                 "rank": current_rank,
                 "user_score": song.user_score,
