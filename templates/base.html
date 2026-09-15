@@ -17,6 +17,9 @@
                 {% if user.is_authenticated %}
                     <form method="post" action="{% url 'logout' %}">
                         {% csrf_token %}
+                        <button type="button" id="settingsBtn" title="表示設定" class="logout-button">
+                            <i class="fa-solid fa-sliders"></i>
+                        </button>
                         {% if user.is_superuser %}
                             <a href="{% url 'admin:index' %}" title="管理画面" target="_blank"><i class="fa-solid fa-cogs"></i></a>
                         {% endif %}
@@ -57,6 +60,83 @@
         <div class="content">
             {% block content %}{% endblock %}
         </div>
+
+        {% if user.is_authenticated %}
+        <!-- 表示設定ポップアップ（ヘッダーのアイコンから開く） -->
+        <div id="settingsModal" class="modal" style="display:none;">
+            <div class="modal-content">
+                <span class="settings-close">&times;</span>
+                <h3>表示設定</h3>
+                <label for="settingsTopNs">表示するTOP</label>
+                <input type="text" id="settingsTopNs" class="score-input" placeholder="5,10,15,20" inputmode="numeric">
+                <div class="settings-hint">カンマ区切り。例: 5,10,15,20</div>
+                <div class="settings-error" id="settingsError"></div>
+                <button type="button" id="saveSettingsBtn">保存</button>
+            </div>
+        </div>
+        <script>
+            (function () {
+                const btn = document.getElementById("settingsBtn");
+                const modal = document.getElementById("settingsModal");
+                if (!btn || !modal) return;
+
+                const input = document.getElementById("settingsTopNs");
+                const errorBox = document.getElementById("settingsError");
+                const saveBtn = document.getElementById("saveSettingsBtn");
+                const closeBtn = modal.querySelector(".settings-close");
+                const url = "{% url 'user_settings' %}";
+
+                function open_() {
+                    errorBox.textContent = "";
+                    modal.style.display = "block";
+                    // 現在値はサーバーから読む（他タブで変えていてもズレない）
+                    fetch(url, { headers: { "X-Requested-With": "fetch" } })
+                        .then((r) => r.json())
+                        .then((d) => { if (d.success) input.value = d.top_ns; })
+                        .catch(() => {});
+                }
+
+                function close_() { modal.style.display = "none"; }
+
+                btn.addEventListener("click", open_);
+                closeBtn.addEventListener("click", close_);
+                // 他のモーダルが window.onclick を使っているので addEventListener で共存させる
+                window.addEventListener("click", (e) => { if (e.target === modal) close_(); });
+
+                saveBtn.addEventListener("click", function () {
+                    errorBox.textContent = "";
+                    saveBtn.disabled = true;
+
+                    fetch(url, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "X-CSRFToken": "{{ csrf_token }}",
+                        },
+                        body: "top_ns=" + encodeURIComponent(input.value),
+                    })
+                        .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+                        .then(({ ok, d }) => {
+                            if (ok && d.success) {
+                                close_();
+                                location.reload(); // その場で反映
+                            } else {
+                                errorBox.textContent = d.error || "保存に失敗しました";
+                                saveBtn.disabled = false;
+                            }
+                        })
+                        .catch(() => {
+                            errorBox.textContent = "通信エラー";
+                            saveBtn.disabled = false;
+                        });
+                });
+
+                input.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") saveBtn.click();
+                });
+            })();
+        </script>
+        {% endif %}
 
         <!-- 保存中オーバーレイ -->
         <div id="overlay">

@@ -1,5 +1,7 @@
 from django.db import connection
 
+from .models import DEFAULT_TOP_NS
+
 # 作詞/作曲/年 ランキング用の対象カラム（SQLインジェクション対策のためホワイトリスト化）
 # value: (DBカラム名, 数値カラムか)
 _CREATOR_COLUMNS = {
@@ -393,18 +395,20 @@ def call_artist_top_n(user_id, top_n, region_id):
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-TOP_NS = (5, 10, 15, 20)
+# 実際に使う top_n はユーザーごとの設定（models.top_ns_for）が持つ。
+# ここにあるのは、設定が無いとき／user を持たない経路のための既定値。
+TOP_NS = DEFAULT_TOP_NS
 
 
 def _validate_top_ns(top_ns):
-    """SQLに直接埋め込むため、整数であることを保証する"""
-    ns = [int(n) for n in top_ns]
+    """SQLに直接埋め込むため、整数であることを保証する（None なら既定値）"""
+    ns = [int(n) for n in (top_ns or DEFAULT_TOP_NS)]
     if not ns:
         raise ValueError("top_ns が空です")
     return ns
 
 
-def call_artist_top_n_multi(user_id, region_id, top_ns=TOP_NS, karaoke_mode=False):
+def call_artist_top_n_multi(user_id, region_id, top_ns=None, karaoke_mode=False):
     """
     歌手ランキングを top_n 4種類ぶんまとめて1クエリで返す（歌手TOP / 歌手ランク用）。
 
@@ -480,7 +484,7 @@ def call_artist_top_n_multi(user_id, region_id, top_ns=TOP_NS, karaoke_mode=Fals
 
 
 def call_creator_top_n_multi(
-    user_id, region_id, creator_type, top_ns=TOP_NS, karaoke_mode=False
+    user_id, region_id, creator_type, top_ns=None, karaoke_mode=False
 ):
     """
     作詞者/作曲者/年ランキングを top_n 4種類ぶんまとめて1クエリで返す

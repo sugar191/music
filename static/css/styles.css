@@ -259,7 +259,8 @@ select option {
 .artist-grid {
     margin-top: 5vh;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    /* 列数は top_grid.html 側が --top-grid-cols で渡す（未指定なら4列） */
+    grid-template-columns: repeat(var(--top-grid-cols, 4), minmax(0, 1fr));
     gap: 0.5rem;
 }
 
@@ -493,6 +494,42 @@ select option {
     float: right; 
     font-size: 20px; 
     cursor: pointer; 
+}
+
+/* 表示設定ポップアップ（ヘッダーの z-index 1100 より前に出す） */
+#settingsModal {
+    z-index: 1200;
+}
+
+.settings-close {
+    float: right;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+#settingsModal label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+#settingsModal .score-input {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+}
+
+.settings-hint {
+    font-size: 0.8rem;
+    color: #666;
+    margin: 4px 0 8px;
+}
+
+.settings-error {
+    color: #c00;
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin-bottom: 8px;
 }
 
 .editable-score {

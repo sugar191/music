@@ -27,6 +27,7 @@ from .views import (
     creator_song_list_view,
     creator_grid_view,
     creator_matrix_view,
+    user_settings_view,
 )
 from . import views_dump
 
@@ -89,6 +90,7 @@ urlpatterns = [
         name="login",
     ),
     path("signup/", signup_view, name="signup"),
+    path("api/user-settings/", user_settings_view, name="user_settings"),
     path("api/dump/run", views_dump.dump_tables, name="dump_tables"),
     path("api/dump/list", views_dump.list_dumps, name="list_dumps"),
     path("api/dump/download", views_dump.download_dump, name="download_dump"),

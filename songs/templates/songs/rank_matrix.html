@@ -42,20 +42,18 @@
         <thead>
             <tr>
             <th>{{ kind_label }}</th>
-            <th style="text-align:right; cursor:pointer;" data-sort-n="5">5</th>
-            <th style="text-align:right; cursor:pointer;" data-sort-n="10">10</th>
-            <th style="text-align:right; cursor:pointer;" data-sort-n="15">15</th>
-            <th style="text-align:right; cursor:pointer;" data-sort-n="20">20</th>
+            {% for n in top_ns %}
+            <th style="text-align:right; cursor:pointer;" data-sort-n="{{ n }}">{{ n }}</th>
+            {% endfor %}
             </tr>
         </thead>
         <tbody>
             {% for r in rows %}
             <tr>
                 <td><a href="{{ r.display_link }}">{% if kind == 'year' %}{{ r.display_name|year_with_suffix }}{% else %}{{ r.display_name }}{% endif %}</a></td>
-                <td style="text-align:right;">{{ r.rank_5|default:"-" }}</td>
-                <td style="text-align:right;">{{ r.rank_10|default:"-" }}</td>
-                <td style="text-align:right;">{{ r.rank_15|default:"-" }}</td>
-                <td style="text-align:right;">{{ r.rank_20|default:"-" }}</td>
+                {% for c in r.cells %}
+                <td style="text-align:right;">{{ c.rank|default:"-" }}</td>
+                {% endfor %}
             </tr>
             {% endfor %}
         </tbody>
@@ -69,15 +67,23 @@
         var tbody = table.tBodies[0];
         if (!tbody) return;
 
-        // 列インデックス: 0=名前, 1=5, 2=10, 3=15, 4=20
-        var colIndexByN = { 5: 1, 10: 2, 15: 3, 20: 4 };
+        // 列構成はサーバー側の TOP_NS から生成されるので、ヘッダーを読んで組み立てる
+        // （0列目は名前、1列目以降が data-sort-n を持つN列）
+        var headers = table.querySelectorAll('th[data-sort-n]');
+        var ns = Array.prototype.map.call(headers, function (th) {
+            return parseInt(th.getAttribute('data-sort-n'), 10);
+        });
+        if (!ns.length) return;
+
+        var colIndexByN = {};
+        ns.forEach(function (n, i) { colIndexByN[n] = i + 1; });
+
         // 各Nでのタイブレーカー順（クリックされたN値が「-」のときの並べ替え基準）
-        var tieBreakersByN = {
-            5:  [],
-            10: [5],
-            15: [10, 5],
-            20: [15, 10, 5]
-        };
+        // 自分より手前のN（小さいN）を近い順に見る
+        var tieBreakersByN = {};
+        ns.forEach(function (n, i) {
+            tieBreakersByN[n] = ns.slice(0, i).reverse();
+        });
 
         function parseCell(row, n) {
             var td = row.cells[colIndexByN[n]];
@@ -130,7 +136,6 @@
             tbody.appendChild(frag);
         }
 
-        var headers = table.querySelectorAll('th[data-sort-n]');
         Array.prototype.forEach.call(headers, function (th) {
             th.addEventListener('click', function () {
                 var n = parseInt(th.getAttribute('data-sort-n'), 10);
@@ -138,8 +143,8 @@
             });
         });
 
-        // 初期表示は「5でソート」と同じ並びにする
-        sortByN(5);
+        // 初期表示は「先頭のN列でソート」と同じ並びにする
+        sortByN(ns[0]);
     })();
     </script>
 

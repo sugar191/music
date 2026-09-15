@@ -128,7 +128,7 @@ class UserProfileResource(resources.ModelResource):
 
 class UserProfileAdmin(BaseResourceAdmin):
     resource_class = UserProfileResource
-    list_display = ["user", "birth_year"]
+    list_display = ["user", "birth_year", "top_ns_csv"]
     search_fields = ["user__username"]
     list_filter = ["birth_year"]
 

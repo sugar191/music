@@ -5,6 +5,7 @@ from collections import defaultdict
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import (
@@ -32,10 +33,12 @@ from .models import (
     MusicRegion,
     ArtistYearPreference,
     UserProfile,
+    parse_top_ns,
+    format_top_ns,
+    top_ns_for,
 )
 from .utils import normalize
 from .services import (
-    TOP_NS,
     call_artist_song_top_n,
     call_artist_insufficient_songs,
     call_artist_top_n_multi,
@@ -52,8 +55,15 @@ CREATOR_TYPE_LABELS = {
     "year": "年",
 }
 
-# 画面のプルダウンに出す top_n の選択肢。集計側（services.TOP_NS）と必ず揃える。
-RANKING_OPTIONS = list(TOP_NS)
+def _matrix_rank_cells(row, top_ns):
+    """
+    ランク表（rank_matrix.html）の1行ぶんのセルを top_ns の順に並べて返す。
+    テンプレート側で rank_5 / rank_10 … と固定で書かずに済むようにする。
+    """
+    return [
+        {"n": n, "rank": row.get(f"rank_{n}"), "score": row.get(f"score_{n}")}
+        for n in top_ns
+    ]
 
 # ランキング系4画面（歌手別/作詞別/作曲別/年別TOP）の分割表示設定。
 # 全件を一度に返すとHTMLが数MBになるため、親カード→その他の順に少しずつ追加する。
@@ -106,16 +116,24 @@ def _resolve_karaoke_mode(request):
 def _resolve_ranking_params(request):
     """
     ランキング系4画面の共通パラメータ解決
-    （region_id / selected_user / top_n / karaoke_mode）
+    （region_id / selected_user / top_n / karaoke_mode / ranking_options）
+
+    ranking_options は「ログイン中のユーザー自身の表示設定」。
+    他人のランキングを見ているときも、列の構成は見ている側の設定に従う。
     """
     region_id, selected_user = _resolve_region_and_user(request)
 
-    try:
-        top_n = int(request.GET.get("top_n", 5))
-    except ValueError:
-        top_n = 5
+    options = list(top_ns_for(request.user))
 
-    return region_id, selected_user, top_n, _resolve_karaoke_mode(request)
+    try:
+        top_n = int(request.GET.get("top_n", options[0]))
+    except (TypeError, ValueError):
+        top_n = options[0]
+    if top_n not in options:
+        # 設定から消された値がURLに残っていても落ちないようにする
+        top_n = options[0]
+
+    return region_id, selected_user, top_n, _resolve_karaoke_mode(request), options
 
 
 def _ranking_dataset(kind, user_id, top_n, region_id, karaoke_mode=False):
@@ -237,14 +255,16 @@ def ranking_view(request):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    region_id, selected_user, top_n, karaoke_mode = _resolve_ranking_params(request)
+    region_id, selected_user, top_n, karaoke_mode, ranking_options = (
+        _resolve_ranking_params(request)
+    )
 
     rankings, insufficient_data = _ranking_dataset(
         "artist", selected_user.id, top_n, region_id, karaoke_mode
     )
 
     context = {
-        "ranking_options": RANKING_OPTIONS,
+        "ranking_options": ranking_options,
         "regions": regions,
         "all_users": users,
         "top_n": top_n,
@@ -266,15 +286,16 @@ def artist_list_view(request):
 
     region_id, selected_user = _resolve_region_and_user(request)
     karaoke_mode = _resolve_karaoke_mode(request)
+    top_ns = top_ns_for(request.user)
 
-    # 4つの top_n を1クエリでまとめて取得し、共通形式
+    # 設定ぶんの top_n を1クエリでまとめて取得し、共通形式
     # (display_name/display_link/display_rank/total_score) に正規化する
     rows = call_artist_top_n_multi(
-        selected_user.id, region_id, karaoke_mode=karaoke_mode
+        selected_user.id, region_id, top_ns=top_ns, karaoke_mode=karaoke_mode
     )
 
     top_lists = []
-    for n in TOP_NS:
+    for n in top_ns:
         ranked = sorted(
             (r for r in rows if r[f"rank_{n}"] is not None),
             key=lambda r, n=n: r[f"order_{n}"],
@@ -319,7 +340,9 @@ def creator_list_view(request, creator_type):
     regions = MusicRegion.objects.all()
     users = User.objects.all().order_by("username")
 
-    region_id, selected_user, top_n, karaoke_mode = _resolve_ranking_params(request)
+    region_id, selected_user, top_n, karaoke_mode, ranking_options = (
+        _resolve_ranking_params(request)
+    )
 
     rankings, insufficient_data = _ranking_dataset(
         creator_type, selected_user.id, top_n, region_id, karaoke_mode
@@ -332,7 +355,7 @@ def creator_list_view(request, creator_type):
     }
 
     context = {
-        "ranking_options": RANKING_OPTIONS,
+        "ranking_options": ranking_options,
         "regions": regions,
         "all_users": users,
         "top_n": top_n,
@@ -387,7 +410,9 @@ def ranking_more_view(request):
     if kind not in RANKING_KIND_FLAGS:
         return JsonResponse({"error": "不正な kind です"}, status=400)
 
-    region_id, selected_user, top_n, karaoke_mode = _resolve_ranking_params(request)
+    region_id, selected_user, top_n, karaoke_mode, ranking_options = (
+        _resolve_ranking_params(request)
+    )
 
     def _offset(name):
         try:
@@ -466,16 +491,18 @@ def creator_grid_view(request, creator_type):
 
     region_id, selected_user = _resolve_region_and_user(request)
     karaoke_mode = _resolve_karaoke_mode(request)
+    top_ns = top_ns_for(request.user)
 
-    # 4つの top_n を1クエリでまとめて取得し、共通形式
+    # 設定ぶんの top_n を1クエリでまとめて取得し、共通形式
     # (display_name/display_link/display_rank/total_score) に正規化する
     creator_songs_url = reverse("creator_songs")
     rows = call_creator_top_n_multi(
-        selected_user.id, region_id, creator_type, karaoke_mode=karaoke_mode
+        selected_user.id, region_id, creator_type, top_ns=top_ns,
+        karaoke_mode=karaoke_mode
     )
 
     top_lists = []
-    for n in TOP_NS:
+    for n in top_ns:
         ranked = sorted(
             (r for r in rows if r[f"rank_{n}"] is not None),
             key=lambda r, n=n: (r[f"rank_{n}"], r["creator"] or ""),
@@ -514,14 +541,14 @@ def creator_grid_view(request, creator_type):
 _RANK_OUT_OF_RANGE = 10**9
 
 
-def _matrix_sort_key(row):
+def _matrix_sort_key(row, top_ns):
     """
     ランク表の行の並び順キー。
-    TOP5 の順位を最優先し、同順（または圏外）なら 10 → 15 → 20 と見ていき、
-    最後は表示名で安定させる。
+    top_ns の先頭（最小N）の順位を最優先し、同順（または圏外）なら
+    次のNへ順に見ていき、最後は表示名で安定させる。
     """
     return tuple(
-        row.get(f"rank_{n}", _RANK_OUT_OF_RANGE) for n in TOP_NS
+        row.get(f"rank_{n}", _RANK_OUT_OF_RANGE) for n in top_ns
     ) + (row.get("display_name", ""),)
 
 
@@ -536,14 +563,16 @@ def creator_matrix_view(request, creator_type):
 
     region_id, selected_user = _resolve_region_and_user(request)
     karaoke_mode = _resolve_karaoke_mode(request)
+    top_ns = top_ns_for(request.user)
 
-    # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
+    # 設定ぶんの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
     creator_songs_url = reverse("creator_songs")
     rows_by_creator = {}
     for r in call_creator_top_n_multi(
-        selected_user.id, region_id, creator_type, karaoke_mode=karaoke_mode
+        selected_user.id, region_id, creator_type, top_ns=top_ns,
+        karaoke_mode=karaoke_mode
     ):
-        if all(r[f"rank_{n}"] is None for n in TOP_NS):
+        if all(r[f"rank_{n}"] is None for n in top_ns):
             # どの top_n の条件も満たさないクリエイターは従来どおり表示しない
             continue
         creator = r["creator"]
@@ -552,13 +581,16 @@ def creator_matrix_view(request, creator_type):
             "display_name": creator,
             "display_link": f"{creator_songs_url}?{qs}",
         }
-        for n in TOP_NS:
+        for n in top_ns:
             if r[f"rank_{n}"] is not None:
                 row[f"rank_{n}"] = r[f"rank_{n}"]
                 row[f"score_{n}"] = r[f"total_{n}"]
+        row["cells"] = _matrix_rank_cells(row, top_ns)
         rows_by_creator[creator] = row
 
-    matrix_rows = sorted(rows_by_creator.values(), key=_matrix_sort_key)
+    matrix_rows = sorted(
+        rows_by_creator.values(), key=lambda row: _matrix_sort_key(row, top_ns)
+    )
 
     return render(
         request,
@@ -566,6 +598,7 @@ def creator_matrix_view(request, creator_type):
         {
             "kind": creator_type,
             "kind_label": CREATOR_TYPE_LABELS[creator_type],
+            "top_ns": top_ns,
             "regions": regions,
             "all_users": users,
             "region_id": region_id,
@@ -702,13 +735,14 @@ def artist_rank_matrix_view(request):
 
     region_id, selected_user = _resolve_region_and_user(request)
     karaoke_mode = _resolve_karaoke_mode(request)
+    top_ns = top_ns_for(request.user)
 
-    # 4つの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
+    # 設定ぶんの top_n を1クエリでまとめて取得（従来は top_n ごとに4回実行していた）
     matrix_rows = []
     for r in call_artist_top_n_multi(
-        selected_user.id, region_id, karaoke_mode=karaoke_mode
+        selected_user.id, region_id, top_ns=top_ns, karaoke_mode=karaoke_mode
     ):
-        if all(r[f"rank_{n}"] is None for n in TOP_NS):
+        if all(r[f"rank_{n}"] is None for n in top_ns):
             # どの top_n の条件も満たさない歌手は従来どおり表示しない
             continue
         aid = r["artist_id"]
@@ -718,14 +752,15 @@ def artist_rank_matrix_view(request):
             "display_link": reverse("artist_songs", args=[aid]),
             "region_id": r.get("region_id"),
         }
-        for n in TOP_NS:
+        for n in top_ns:
             if r[f"rank_{n}"] is not None:
                 row[f"rank_{n}"] = r[f"rank_{n}"]
                 row[f"score_{n}"] = r[f"total_{n}"]
+        row["cells"] = _matrix_rank_cells(row, top_ns)
         matrix_rows.append(row)
 
-    # 並び順：TOP5 → TOP10 → TOP15 → TOP20 の順位を優先して昇順
-    matrix_rows.sort(key=_matrix_sort_key)
+    # 並び順：top_ns の先頭（小さいN）の順位を優先して昇順
+    matrix_rows.sort(key=lambda row: _matrix_sort_key(row, top_ns))
 
     return render(
         request,
@@ -733,6 +768,7 @@ def artist_rank_matrix_view(request):
         {
             "kind": "artist",
             "kind_label": "歌手",
+            "top_ns": top_ns,
             "regions": regions,
             "all_users": users,
             "region_id": region_id,
@@ -1964,3 +2000,34 @@ def artist_year_heatmap_add_artist(request):
         obj.save(update_fields=["score"])
 
     return JsonResponse({"success": True, "year": year, "created": created})
+
+
+# ---------------------------------------------------------------------------
+# 表示設定（ヘッダー右上のアイコンから開くポップアップ）
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def user_settings_view(request):
+    """
+    ログイン中のユーザー自身の表示設定を読み書きする。
+      GET : 現在の設定を返す（ポップアップを開いたときに読みにくる）
+      POST: top_ns を保存する
+    管理画面に入れない一般ユーザーでも、自分の設定だけはここから変えられる。
+    """
+    if request.method == "POST":
+        try:
+            ns = parse_top_ns(request.POST.get("top_ns", ""))
+        except ValidationError as e:
+            return JsonResponse(
+                {"success": False, "error": " / ".join(e.messages)}, status=400
+            )
+
+        UserProfile.objects.update_or_create(
+            user=request.user, defaults={"top_ns_csv": format_top_ns(ns)}
+        )
+        return JsonResponse({"success": True, "top_ns": format_top_ns(ns)})
+
+    return JsonResponse(
+        {"success": True, "top_ns": format_top_ns(top_ns_for(request.user))}
+    )

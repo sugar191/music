@@ -64,7 +64,8 @@
             filterTopCards(sel.value);
         });
     </script>
-    <div class="artist-grid">
+    {# 列数はサーバー側の TOP_NS の個数（= top_lists の長さ）に合わせる #}
+    <div class="artist-grid" style="--top-grid-cols: {{ top_lists|length }};">
         {% for label, items in top_lists %}
             <div class="artist-card" data-top-label="{{ label }}">
                 <div class="artist-card-header">{{ label }}</div>

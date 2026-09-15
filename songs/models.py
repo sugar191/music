@@ -405,14 +405,106 @@ class ArtistYearPreference(models.Model):
         return f"{self.user_id} {self.artist_id} {self.year}={self.score}"
 
 
+# ランキング画面に並べる top_n（TOP5 / TOP10 …）の既定値と制限。
+# 実際に使う値はユーザーごとに UserProfile.top_ns_csv が持つ。
+DEFAULT_TOP_NS = (5, 10, 15, 20)
+TOP_NS_MIN_N = 1
+TOP_NS_MAX_N = 100
+TOP_NS_MAX_COUNT = 8
+
+
+def parse_top_ns(value):
+    """
+    "5,10,15,20" のような文字列を (5, 10, 15, 20) に変換する。
+    不正なら ValidationError。
+    画面のポップアップからも管理画面からもここを通すので、検証はここ1箇所に集約する。
+
+    ランク表の列順とタイブレーカーが昇順前提なので、昇順に揃えて返す。
+    """
+    if isinstance(value, (list, tuple)):
+        parts = [str(v) for v in value]
+    else:
+        # 全角カンマで入力されがちなので吸収する
+        parts = str(value or "").replace("、", ",").replace("，", ",").split(",")
+
+    parts = [p.strip() for p in parts if p.strip()]
+    if not parts:
+        raise ValidationError("1つ以上の数字を入力してください。")
+    if len(parts) > TOP_NS_MAX_COUNT:
+        raise ValidationError(f"多すぎます（最大{TOP_NS_MAX_COUNT}個）。")
+
+    ns = []
+    for p in parts:
+        try:
+            n = int(p)
+        except ValueError:
+            raise ValidationError(f"数字で入力してください：{p}")
+        if not (TOP_NS_MIN_N <= n <= TOP_NS_MAX_N):
+            raise ValidationError(
+                f"{TOP_NS_MIN_N}〜{TOP_NS_MAX_N} の範囲で入力してください：{n}"
+            )
+        ns.append(n)
+
+    if len(set(ns)) != len(ns):
+        raise ValidationError("同じ数字が重複しています。")
+
+    return tuple(sorted(ns))
+
+
+def format_top_ns(ns):
+    """(5, 10, 15, 20) → "5,10,15,20" """
+    return ",".join(str(n) for n in ns)
+
+
 class UserProfile(models.Model):
     """
-    ユーザーの補足情報（年表ヒートマップの年齢行に使う生年）。
+    ユーザーの補足情報（年表ヒートマップの年齢行に使う生年、ランキングの表示設定）。
     1ユーザー1件なので OneToOneField（DB側の UNIQUE 制約で重複を防ぐ）。
     """
 
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     birth_year = models.IntegerField(null=True, blank=True)
+    # 歌手別TOP / 歌手TOP / 歌手ランクに並べる top_n。カンマ区切りで保持する。
+    # （個数が可変なので ArrayField の無い MySQL ではこの持ち方が素直）
+    top_ns_csv = models.CharField(
+        max_length=64,
+        default="5,10,15,20",
+        verbose_name="表示するTOP",
+        help_text="カンマ区切り。例: 5,10,15,20",
+    )
+
+    @property
+    def top_ns(self):
+        """壊れた値が入っていても画面が落ちないよう、既定値にフォールバックする。"""
+        try:
+            return parse_top_ns(self.top_ns_csv)
+        except ValidationError:
+            return DEFAULT_TOP_NS
+
+    def clean(self):
+        # 管理画面から編集されたときもここで弾き、ついでに正規化しておく
+        self.top_ns_csv = format_top_ns(parse_top_ns(self.top_ns_csv))
 
     def __str__(self):
         return f"{self.user.username} profile"
+
+
+def top_ns_for(user):
+    """
+    その画面を見ているユーザーの表示設定を返す。
+    未ログイン・プロフィール未作成・値が壊れている場合は既定値。
+    """
+    if not getattr(user, "is_authenticated", False):
+        return DEFAULT_TOP_NS
+
+    csv = (
+        UserProfile.objects.filter(user=user)
+        .values_list("top_ns_csv", flat=True)
+        .first()
+    )
+    if not csv:
+        return DEFAULT_TOP_NS
+    try:
+        return parse_top_ns(csv)
+    except ValidationError:
+        return DEFAULT_TOP_NS
