@@ -67,9 +67,14 @@
             <div class="modal-content">
                 <span class="settings-close">&times;</span>
                 <h3>表示設定</h3>
-                <label for="settingsTopNs">表示するTOP</label>
-                <input type="text" id="settingsTopNs" class="score-input" placeholder="5,10,15,20" inputmode="numeric">
-                <div class="settings-hint">カンマ区切り。例: 5,10,15,20</div>
+                <label>表示するTOP</label>
+                {# スマホでカンマが打てないので、数字は1つずつ追加して×で消す #}
+                <div id="settingsChips" class="settings-chips"></div>
+                <div class="settings-add">
+                    <input type="number" id="settingsAddInput" class="score-input" min="1" max="100" step="1" inputmode="numeric" placeholder="例: 25">
+                    <button type="button" id="settingsAddBtn">追加</button>
+                </div>
+                <div class="settings-hint">最大8個。小さい順に並びます。</div>
                 <div class="settings-error" id="settingsError"></div>
                 <button type="button" id="saveSettingsBtn">保存</button>
             </div>
@@ -80,19 +85,87 @@
                 const modal = document.getElementById("settingsModal");
                 if (!btn || !modal) return;
 
-                const input = document.getElementById("settingsTopNs");
+                const chipBox = document.getElementById("settingsChips");
+                const addInput = document.getElementById("settingsAddInput");
+                const addBtn = document.getElementById("settingsAddBtn");
                 const errorBox = document.getElementById("settingsError");
                 const saveBtn = document.getElementById("saveSettingsBtn");
                 const closeBtn = modal.querySelector(".settings-close");
                 const url = "{% url 'user_settings' %}";
+                const MAX_COUNT = 8;
+
+                let ns = [];
+
+                function render() {
+                    chipBox.textContent = "";
+                    if (!ns.length) {
+                        const empty = document.createElement("span");
+                        empty.className = "settings-chips-empty";
+                        empty.textContent = "（1つ以上追加してください）";
+                        chipBox.appendChild(empty);
+                        return;
+                    }
+                    ns.forEach(function (n) {
+                        const chip = document.createElement("span");
+                        chip.className = "settings-chip";
+                        chip.appendChild(document.createTextNode("TOP" + n));
+
+                        const del = document.createElement("button");
+                        del.type = "button";
+                        del.className = "settings-chip-del";
+                        del.title = "削除";
+                        del.textContent = "×";
+                        del.addEventListener("click", function () {
+                            ns = ns.filter((v) => v !== n);
+                            errorBox.textContent = "";
+                            render();
+                        });
+
+                        chip.appendChild(del);
+                        chipBox.appendChild(chip);
+                    });
+                }
+
+                function add() {
+                    const n = parseInt(addInput.value, 10);
+                    if (isNaN(n) || n < 1 || n > 100) {
+                        errorBox.textContent = "1〜100 の数字を入れてください";
+                        return;
+                    }
+                    if (ns.includes(n)) {
+                        errorBox.textContent = "TOP" + n + " はすでにあります";
+                        return;
+                    }
+                    if (ns.length >= MAX_COUNT) {
+                        errorBox.textContent = "最大" + MAX_COUNT + "個までです";
+                        return;
+                    }
+                    ns.push(n);
+                    ns.sort((a, b) => a - b);
+                    errorBox.textContent = "";
+                    addInput.value = "";
+                    render();
+                    addInput.focus();
+                }
 
                 function open_() {
                     errorBox.textContent = "";
+                    addInput.value = "";
+                    saveBtn.disabled = false;
+                    ns = [];
+                    render();
                     modal.style.display = "block";
                     // 現在値はサーバーから読む（他タブで変えていてもズレない）
                     fetch(url, { headers: { "X-Requested-With": "fetch" } })
                         .then((r) => r.json())
-                        .then((d) => { if (d.success) input.value = d.top_ns; })
+                        .then((d) => {
+                            if (!d.success) return;
+                            ns = d.top_ns
+                                .split(",")
+                                .map((v) => parseInt(v, 10))
+                                .filter((v) => !isNaN(v));
+                            render();
+                        })
                         .catch(() => {});
                 }
 
@@ -103,7 +176,16 @@
                 // 他のモーダルが window.onclick を使っているので addEventListener で共存させる
                 window.addEventListener("click", (e) => { if (e.target === modal) close_(); });
 
+                addBtn.addEventListener("click", add);
+                addInput.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") { e.preventDefault(); add(); }
+                });
+
                 saveBtn.addEventListener("click", function () {
+                    if (!ns.length) {
+                        errorBox.textContent = "1つ以上追加してください";
+                        return;
+                    }
                     errorBox.textContent = "";
                     saveBtn.disabled = true;
 
@@ -113,7 +195,7 @@
                             "Content-Type": "application/x-www-form-urlencoded",
                             "X-CSRFToken": "{{ csrf_token }}",
                         },
-                        body: "top_ns=" + encodeURIComponent(input.value),
+                        body: "top_ns=" + encodeURIComponent(ns.join(",")),
                     })
                         .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
                         .then(({ ok, d }) => {
@@ -129,10 +211,6 @@
                             errorBox.textContent = "通信エラー";
                             saveBtn.disabled = false;
                         });
-                });
-
-                input.addEventListener("keydown", (e) => {
-                    if (e.key === "Enter") saveBtn.click();
                 });
             })();
         </script>
