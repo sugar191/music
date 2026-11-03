@@ -203,4 +203,12 @@ LOGOUT_REDIRECT_URL = "/login/"  # ログアウト後のリダイレクト先
 # 未設定なら空文字になり、views_dump 側で全リクエストを 401 にする。
 EXPORT_API_TOKEN = config("EXPORT_API_TOKEN", default="")
 
+# 作詞・作曲・年の取得（未入力の曲ページ）で呼ばない外部API。カンマ区切り。
+# 例: PythonAnywhere 無料アカウントは vocadb.net に繋がらないので "vocadb" を指定する。
+CREDIT_FETCH_SKIP_APIS = tuple(
+    a.strip().lower()
+    for a in config("CREDIT_FETCH_SKIP_APIS", default="").split(",")
+    if a.strip()
+)
+
 RATING_CACHE_DIR = BASE_DIR / "exports"

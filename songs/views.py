@@ -2416,3 +2416,72 @@ def missing_credits_import_view(request):
         messages.warning(request, "該当なし：" + "、".join(not_found[:20])
                          + (f" ほか{len(not_found) - 20}件" if len(not_found) > 20 else ""))
     return redirect(back)
+
+
+@require_POST
+@login_required
+@user_passes_test(_is_superuser)
+def missing_credits_fetch_view(request):
+    """
+    1曲ぶん、外部API（MusicBrainz → VocaDB → iTunes）から作詞・作曲・年を取得して返す。
+    DB には保存しない（画面の入力欄に入れるだけ。保存はいつもの「保存」ボタンで）。
+
+    歌手名・曲名・作詞・作曲・年は画面上の現在値（未保存の編集を含む）を受け取り、
+    空の項目だけを取りに行く。
+    """
+    # 重い依存（musicbrainzngs / jaconv）はこの画面を使うときだけ読む
+    from .credit_fetch import fetch_credits_for_song
+
+    try:
+        song = Song.objects.select_related("artist", "credit").get(
+            pk=int(request.POST.get("song_id", ""))
+        )
+    except (Song.DoesNotExist, ValueError):
+        return JsonResponse({"success": False, "error": "曲が存在しません"}, status=404)
+
+    current = {f: request.POST.get(f, "").strip() for f in ("lyricist", "composer", "year")}
+    try:
+        result = fetch_credits_for_song(
+            song,
+            artist_name=request.POST.get("artist"),
+            title=request.POST.get("title"),
+            current=current,
+        )
+    except Exception as e:  # 外部API起因の想定外エラーは画面に出して終わる
+        return JsonResponse({"success": False, "error": f"取得に失敗しました: {e}"}, status=502)
+
+    if result.get("_skipped"):
+        return JsonResponse({"success": True, "fields": {}, "message": "未入力の項目がありません"})
+    if "_error" in result:
+        return JsonResponse({"success": False, "error": result["_error"]}, status=502)
+
+    fields = {
+        f: {"value": value, "source": source}
+        for f, (value, source) in result.get("fields", {}).items()
+    }
+    diag_lines = [
+        "試した表記: " + " / ".join(f"{a}｜{t}" for a, t in result.get("pairs", [])),
+    ]
+    for api, meta in (result.get("diagnostics") or {}).items():
+        others = list(dict.fromkeys(o for o in meta.get("other_artists", []) if o))[:5]
+        line = (
+            f"{api}: 曲名一致={int(bool(meta.get('title_hit')))} "
+            f"歌手一致={int(bool(meta.get('artist_hit')))} "
+            f"両方一致={int(bool(meta.get('both_hit')))}"
+        )
+        if others:
+            line += "（曲名一致の別歌手: " + " | ".join(others) + "）"
+        diag_lines.append(line)
+    if result.get("skipped_apis"):
+        diag_lines.append("設定で呼ばないAPI: " + ", ".join(result["skipped_apis"]))
+    if result.get("note"):
+        diag_lines.append("note: " + result["note"])
+
+    return JsonResponse(
+        {
+            "success": True,
+            "fields": fields,
+            "still_missing": result.get("still_missing", []),
+            "diagnostics": "\n".join(diag_lines),
+        }
+    )

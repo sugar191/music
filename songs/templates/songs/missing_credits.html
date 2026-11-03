@@ -56,7 +56,7 @@
     {% if rows %}
       <table class="missing-credits-table">
         <thead>
-          <tr><th>歌手</th><th>曲名</th><th>作詞</th><th>作曲</th><th>年</th><th></th><th></th></tr>
+          <tr><th>歌手</th><th>曲名</th><th>作詞</th><th>作曲</th><th>年</th><th></th><th></th><th>取得</th></tr>
         </thead>
         <tbody>
           {% for r in rows %}
@@ -83,6 +83,12 @@
                 <a href="{% url 'artist_songs' r.song.artist_id %}" target="_blank" rel="noopener" title="この歌手の曲一覧">
                   <i class="fa-solid fa-list"></i>
                 </a>
+              </td>
+              <td class="fetch-cell">
+                <a href="#" class="fetch-link" data-song-id="{{ r.song.id }}" title="外部APIから作詞・作曲・年を取得（保存はしません）">
+                  <i class="fa-solid fa-cloud-arrow-down"></i>
+                </a>
+                <small class="fetch-status"></small>
               </td>
             </tr>
           {% endfor %}
@@ -150,6 +156,71 @@
         if (input && isDirty(input)) openEdit(td);
       });
 
+      // 外部APIから取得 → 空の入力欄だけに入れる（保存は「保存」ボタンで）
+      const fetchUrl = "{% url 'missing_credits_fetch' %}";
+      const csrfToken = form.querySelector("input[name=csrfmiddlewaretoken]").value;
+      const SOURCE_LABEL = { musicbrainz: "MB", vocadb: "VocaDB", itunes: "iTunes" };
+
+      form.addEventListener("click", async (e) => {
+        const link = e.target.closest(".fetch-link");
+        if (!link) return;
+        e.preventDefault();
+        if (link.dataset.busy) return;
+
+        const tr = link.closest("tr");
+        const id = link.dataset.songId;
+        const status = tr.querySelector(".fetch-status");
+        const val = (name) => (tr.querySelector(`[name="${name}_${id}"]`) || {}).value || "";
+
+        const body = new URLSearchParams({
+          song_id: id,
+          artist: val("artist"),
+          title: val("title"),
+          lyricist: val("lyricist"),
+          composer: val("composer"),
+          year: val("year"),
+        });
+
+        link.dataset.busy = "1";
+        status.textContent = "取得中…";
+        status.title = "";
+        status.style.color = "";
+        try {
+          const r = await fetch(fetchUrl, {
+            method: "POST",
+            headers: { "X-CSRFToken": csrfToken, "Content-Type": "application/x-www-form-urlencoded" },
+            body,
+          });
+          const d = await r.json();
+          if (!d.success) {
+            status.textContent = "エラー";
+            status.title = d.error || "";
+            status.style.color = "red";
+            return;
+          }
+          const got = [];
+          for (const [field, info] of Object.entries(d.fields || {})) {
+            const input = tr.querySelector(`[name="${field}_${id}"]`);
+            if (!input || input.value.trim() !== "") continue;  // 入力済みは触らない
+            input.value = info.value;
+            input.title = "取得元: " + (SOURCE_LABEL[info.source] || info.source);
+            got.push(SOURCE_LABEL[info.source] || info.source);
+          }
+          refresh(tr);
+          updateButton();
+          status.textContent = got.length
+            ? `${got.length}件（${[...new Set(got)].join("・")}）`
+            : (d.message || "見つからず");
+          status.title = d.diagnostics || "";
+          status.style.color = got.length ? "green" : "gray";
+        } catch (err) {
+          status.textContent = "通信エラー";
+          status.style.color = "red";
+        } finally {
+          delete link.dataset.busy;
+        }
+      });
+
       // エラー再表示時は入力値が復元されているので初期状態を反映
       form.querySelectorAll("tbody tr").forEach(refresh);
       updateButton();
@@ -168,5 +239,7 @@
     .missing-credits-table td.toggle-edit.editing .edit-mode { display: inline-block; }
     .missing-credits-table td.toggle-edit.editing .view-mode { display: none; }
     .missing-credits-table .edit-link { font-size: 0.8em; white-space: nowrap; }
+    .missing-credits-table .fetch-cell { white-space: nowrap; }
+    .missing-credits-table .fetch-status { cursor: help; }
   </style>
 {% endblock %}
