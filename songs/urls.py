@@ -28,6 +28,8 @@ from .views import (
     creator_grid_view,
     creator_matrix_view,
     user_settings_view,
+    missing_credits_view,
+    missing_credits_import_view,
 )
 from . import views_dump
 
@@ -64,6 +66,8 @@ urlpatterns = [
     path("year-matrix/", creator_matrix_view, {"creator_type": "year"}, name="year_matrix"),
     path("creator-songs/", creator_song_list_view, name="creator_songs"),
     path("songs/bulk_add/", bulk_add_view, name="bulk_add_songs"),
+    path("manage/missing-credits/", missing_credits_view, name="missing_credits"),
+    path("manage/missing-credits/import/", missing_credits_import_view, name="missing_credits_import"),
     path(
         "artist_year_heatmap/",
         artist_year_heatmap_view,

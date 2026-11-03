@@ -21,6 +21,7 @@
                             <i class="fa-solid fa-sliders"></i>
                         </button>
                         {% if user.is_superuser %}
+                            <a href="{% url 'missing_credits' %}" title="作詞・作曲・年の未入力"><i class="fa-solid fa-pen-to-square"></i></a>
                             <a href="{% url 'admin:index' %}" title="管理画面" target="_blank"><i class="fa-solid fa-cogs"></i></a>
                         {% endif %}
                         <button type="submit" title="ログアウト" class="logout-button"><i class="fa-solid fa-right-from-bracket"></i></button>

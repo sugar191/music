@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}未入力の曲{% endblock %}
+{% block content %}
+
+{# 絞り込み（GET）。保存用フォームの中に入れ子にできないので別フォームにする #}
+<form method="get" class="top-bar" style="gap:8px; align-items:center; flex-wrap:wrap;">
+  <select name="region" onchange="this.form.submit()">
+    <option value="all" {% if filters.region == "all" %}selected{% endif %}>全て</option>
+    {% for r in regions %}
+      <option value="{{ r.id }}" {% if filters.region == r.id|stringformat:"s" %}selected{% endif %}>{{ r.name }}</option>
+    {% endfor %}
+  </select>
+  <select name="cover" onchange="this.form.submit()">
+    <option value="0" {% if filters.cover == "0" %}selected{% endif %}>オリジナル</option>
+    <option value="1" {% if filters.cover == "1" %}selected{% endif %}>カバー</option>
+    <option value="all" {% if filters.cover == "all" %}selected{% endif %}>全て</option>
+  </select>
+  <input type="search" name="artist" value="{{ filters.artist }}" placeholder="歌手名" style="width:9rem;">
+  <input type="search" name="title" value="{{ filters.title }}" placeholder="曲名" style="width:9rem;">
+  <button type="submit">絞り込み</button>
+  <span>{{ total }}曲</span>
+  {% if page.paginator.num_pages > 1 %}
+    <span>
+      {% if page.has_previous %}<a href="?{{ filter_qs }}&page={{ page.previous_page_number }}">&laquo; 前</a>{% endif %}
+      {{ page.number }} / {{ page.paginator.num_pages }}
+      {% if page.has_next %}<a href="?{{ filter_qs }}&page={{ page.next_page_number }}">次 &raquo;</a>{% endif %}
+    </span>
+  {% endif %}
+</form>
+
+<div class="table-area" style="margin-bottom:0;">
+  {% for m in messages %}
+    <p style="color:{% if m.tags == 'error' %}red{% elif m.tags == 'warning' %}darkorange{% else %}green{% endif %}">{{ m }}</p>
+  {% endfor %}
+
+  {# CSVインポート（保存用フォームとは別フォーム） #}
+  <details style="margin-bottom:8px;">
+    <summary>CSVインポート</summary>
+    <form method="post" action="{% url 'missing_credits_import' %}" enctype="multipart/form-data" id="import-form" style="margin-top:6px;">
+      {% csrf_token %}
+      <input type="hidden" name="filter_qs" value="{{ filter_qs }}">
+      <input type="file" name="csv_file" accept=".csv,text/csv" required>
+      <button type="submit">インポート</button>
+      <div><small>列：Artist, Song, lyricist, composer, year（1行目は見出し）。歌手名・曲名が完全一致する曲の、未入力の項目だけを埋めます。</small></div>
+    </form>
+  </details>
+</div>
+
+<form method="post" id="missing-form">
+  {% csrf_token %}
+  <input type="hidden" name="page" value="{{ page.number }}">
+  <input type="hidden" name="filter_qs" value="{{ filter_qs }}">
+
+  <div style="padding-bottom:3rem;">
+
+    {% if rows %}
+      <table class="missing-credits-table">
+        <thead>
+          <tr><th>歌手</th><th>曲名</th><th>作詞</th><th>作曲</th><th>年</th><th></th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td class="toggle-edit">
+                <span class="view-mode">{{ r.song.artist.name }} <a href="#" class="edit-link">[編集]</a></span>
+                <input type="text" class="edit-mode" name="artist_{{ r.song.id }}" value="{{ r.artist_name }}" data-orig="{{ r.song.artist.name }}" required>
+                {% if r.song.is_alias_credit %}<br><small>（{{ r.song.credit.name }}名義）</small>{% endif %}
+              </td>
+              <td class="toggle-edit">
+                <input type="hidden" name="song_id" value="{{ r.song.id }}">
+                <span class="view-mode">{{ r.song.title }} <a href="#" class="edit-link">[編集]</a></span>
+                <input type="text" class="edit-mode" name="title_{{ r.song.id }}" value="{{ r.title }}" data-orig="{{ r.song.title }}" required>
+              </td>
+              <td><input type="text" name="lyricist_{{ r.song.id }}" value="{{ r.lyricist }}" data-orig="{{ r.lyricist }}"></td>
+              <td><input type="text" name="composer_{{ r.song.id }}" value="{{ r.composer }}" data-orig="{{ r.composer }}"></td>
+              <td><input type="number" class="year-input" name="year_{{ r.song.id }}" value="{{ r.year }}" data-orig="{{ r.year }}" min="1900" max="2100" inputmode="numeric"></td>
+              <td>
+                <a href="https://www.google.com/search?q={{ r.google_q|urlencode }}" target="_blank" rel="noopener" title="Googleで検索">
+                  <i class="fa-brands fa-google"></i>
+                </a>
+              </td>
+              <td>
+                <a href="{% url 'artist_songs' r.song.artist_id %}" target="_blank" rel="noopener" title="この歌手の曲一覧">
+                  <i class="fa-solid fa-list"></i>
+                </a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>未入力の曲はありません。</p>
+    {% endif %}
+  </div>
+
+  {% if rows %}
+    <div class="bottom-bar">
+      <button type="submit" id="missing-save">保存</button>
+    </div>
+  {% endif %}
+</form>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+    (function () {
+      const form = document.getElementById("missing-form");
+      if (!form) return;
+      const saveBtn = document.getElementById("missing-save");
+      let submitting = false;
+
+      function isDirty(input) {
+        return input.value.trim() !== (input.dataset.orig || "");
+      }
+      function refresh(tr) {
+        const dirty = [...tr.querySelectorAll("input[data-orig]")].some(isDirty);
+        tr.classList.toggle("row-dirty", dirty);
+      }
+      function dirtyCount() {
+        return form.querySelectorAll("tr.row-dirty").length;
+      }
+      function updateButton() {
+        const n = dirtyCount();
+        if (saveBtn) saveBtn.textContent = n ? `保存（${n}曲）` : "保存";
+      }
+
+      form.addEventListener("input", (e) => {
+        const tr = e.target.closest("tr");
+        if (tr) refresh(tr);
+        updateButton();
+      });
+      // 歌手名・曲名は表示のみ → [編集] でテキストボックスに切り替える
+      function openEdit(td) {
+        td.classList.add("editing");
+      }
+      form.addEventListener("click", (e) => {
+        const link = e.target.closest(".edit-link");
+        if (!link) return;
+        e.preventDefault();
+        const td = link.closest("td");
+        openEdit(td);
+        const input = td.querySelector(".edit-mode");
+        input.focus();
+        input.select();
+      });
+      // エラー再表示で値が変わっている欄は最初から編集状態にする
+      form.querySelectorAll("td.toggle-edit").forEach((td) => {
+        const input = td.querySelector(".edit-mode");
+        if (input && isDirty(input)) openEdit(td);
+      });
+
+      // エラー再表示時は入力値が復元されているので初期状態を反映
+      form.querySelectorAll("tbody tr").forEach(refresh);
+      updateButton();
+
+      form.addEventListener("submit", () => { submitting = true; });
+      window.addEventListener("beforeunload", (e) => {
+        if (!submitting && dirtyCount()) { e.preventDefault(); e.returnValue = ""; }
+      });
+    })();
+  </script>
+  <style>
+    .missing-credits-table input[type="text"] { width: 12rem; }
+    .missing-credits-table .year-input { width: 5rem; }
+    .missing-credits-table tr.row-dirty td { background-color: #fff6d5; }
+    .missing-credits-table td.toggle-edit .edit-mode { display: none; }
+    .missing-credits-table td.toggle-edit.editing .edit-mode { display: inline-block; }
+    .missing-credits-table td.toggle-edit.editing .view-mode { display: none; }
+    .missing-credits-table .edit-link { font-size: 0.8em; white-space: nowrap; }
+  </style>
+{% endblock %}

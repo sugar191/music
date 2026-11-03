@@ -1,8 +1,11 @@
 import re
+import csv
+import io
 import json
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
-from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
@@ -18,7 +21,7 @@ from django.db.models import (
     Min,
 )
 from django.db.models.functions import Coalesce, Lower
-from django.http import JsonResponse
+from django.http import JsonResponse, QueryDict
 from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -2031,3 +2034,385 @@ def user_settings_view(request):
     return JsonResponse(
         {"success": True, "top_ns": format_top_ns(top_ns_for(request.user))}
     )
+
+
+# ---------------------------------------------------------------------------
+# 管理者用：作詞・作曲・年の未入力曲の一括入力
+# ---------------------------------------------------------------------------
+
+MISSING_CREDITS_PAGE_SIZE = 100
+
+
+def _is_superuser(user):
+    return user.is_active and user.is_superuser
+
+
+@login_required
+@user_passes_test(_is_superuser)
+def missing_credits_view(request):
+    """
+    作詞・作曲・年のいずれかが未入力の曲を一覧し、まとめて保存する。
+
+    未入力は NULL のほかに空文字もヒットさせる（現状データは NULL のみだが念のため）。
+    保存は「表示時から値が変わった項目」だけ更新する。
+    """
+    if request.method == "POST":
+        page = request.POST.get("page", "1")
+        filter_qs = request.POST.get("filter_qs", "")
+        ids = [int(i) for i in request.POST.getlist("song_id") if i.isdigit()]
+
+        errors = []
+        saved = 0
+        try:
+            with transaction.atomic():
+                saved = _save_missing_credits(request.POST, ids, errors)
+                if errors:
+                    # 1件でも失敗したら全部取り消す
+                    raise _MissingCreditsRollback
+        except _MissingCreditsRollback:
+            for e in errors:
+                messages.error(request, e)
+            return _render_missing_credits(
+                request, page, QueryDict(filter_qs), posted=request.POST
+            )
+
+        messages.success(request, f"{saved}曲を保存しました。")
+        params = QueryDict(filter_qs, mutable=True)
+        params["page"] = page
+        return redirect(f"{reverse('missing_credits')}?{params.urlencode()}")
+
+    return _render_missing_credits(request, request.GET.get("page", "1"), request.GET)
+
+
+class _MissingCreditsRollback(Exception):
+    pass
+
+
+def _rename_artist(artist, new_name):
+    """Artist の名前を変える。主名義（ArtistCredit）の表記も合わせる。"""
+    old_name = artist.name
+    artist.name = new_name
+    artist.format_name = normalize(new_name)
+    artist.save(update_fields=["name", "format_name"])
+
+    credit = artist.credits.filter(is_primary=True).first()
+    if credit and credit.name == old_name:
+        # 同じ歌手に新しい名前の別名義が既にあるときは unique に当たるので触らない
+        if not artist.credits.filter(name=new_name).exclude(pk=credit.pk).exists():
+            credit.name = new_name
+            credit.format_name = normalize(new_name)
+            credit.save(update_fields=["name", "format_name"])
+
+
+def _move_song_to_artist(song, target):
+    """曲を別の Artist に付け替える。名義も付け替え先のものにする。"""
+    old_credit = song.credit
+    if old_credit.is_primary:
+        new_credit = target.ensure_primary_credit()
+    else:
+        # 別名義（例: 桑田佳祐）の曲なら、付け替え先にも同じ名義を用意する
+        new_credit = target.resolve_credit(old_credit.name)
+    song.artist = target
+    song.credit = new_credit
+
+
+def _save_missing_credits(post, ids, errors):
+    """
+    一覧の入力内容を保存する。保存した曲数を返し、問題は errors に積む。
+    呼び出し側の transaction.atomic() の中で動かす前提。
+
+    歌手名の変更:
+      - 同じ地域に同名の Artist が既にある → この曲だけその Artist に付け替える
+        （付け替えで曲が0件になった元の Artist は削除する）
+      - 無い → Artist 自体の名前を変える（その歌手の他の曲にも反映される）
+    """
+    songs = Song.objects.select_related("artist", "credit").in_bulk(ids)
+    # 比較は「表示時の値」と行う。同じ歌手の別の行で先に改名されても、
+    # 触っていない行が古い名前で上書きしに来ないようにするため。
+    orig_artist_names = {sid: s.artist.name for sid, s in songs.items()}
+
+    saved = 0
+    moved_from = set()  # 付け替えで曲が抜けた Artist（最後に0曲なら削除する）
+    for song_id in ids:
+        song = songs.get(song_id)
+        if song is None:
+            continue
+        label = song.title
+        changed = []
+
+        # --- 歌手名 ---
+        new_artist_name = post.get(f"artist_{song_id}", "").strip()
+        if not new_artist_name:
+            errors.append(f"{label}：歌手名が空です")
+            continue
+        if new_artist_name != orig_artist_names[song_id]:
+            artist = Artist.objects.get(pk=song.artist_id)  # 先の行で改名済みかもしれない
+            if artist.name != new_artist_name:
+                existing = (
+                    Artist.objects.filter(name=new_artist_name, region_id=artist.region_id)
+                    .exclude(pk=artist.pk)
+                    .first()
+                )
+                if existing:
+                    moved_from.add(song.artist_id)
+                    _move_song_to_artist(song, existing)
+                    changed += ["artist", "credit"]
+                else:
+                    _rename_artist(artist, new_artist_name)
+                    song.artist = artist
+
+        # --- 曲名 ---
+        new_title = post.get(f"title_{song_id}", "").strip()
+        if not new_title:
+            errors.append(f"{label}：曲名が空です")
+            continue
+        if new_title != song.title or "artist" in changed:
+            dup = (
+                Song.objects.filter(artist_id=song.artist_id, title=new_title)
+                .exclude(pk=song.pk)
+                .exists()
+            )
+            if dup:
+                errors.append(
+                    f"{label}：「{song.artist.name}」に「{new_title}」は既に登録されています"
+                )
+                continue
+            if new_title != song.title:
+                song.title = new_title
+                song.format_title = normalize(new_title)
+                changed += ["title", "format_title"]
+
+        # --- 作詞・作曲 ---
+        for field in ("lyricist", "composer"):
+            value = post.get(f"{field}_{song_id}", "").strip() or None
+            if value != getattr(song, field):
+                setattr(song, field, value)
+                changed.append(field)
+
+        # --- 年 ---
+        raw_year = post.get(f"year_{song_id}", "").strip()
+        if raw_year:
+            try:
+                year = int(raw_year)
+            except ValueError:
+                errors.append(f"{label}：年は数値で入力してください（{raw_year}）")
+                continue
+        else:
+            year = None
+        if year != song.year:
+            song.year = year
+            changed.append("year")
+
+        if changed:
+            try:
+                with transaction.atomic():
+                    song.save(update_fields=changed)
+            except IntegrityError:
+                errors.append(f"{label}：保存できませんでした（重複の可能性があります）")
+                continue
+            saved += 1
+
+    if not errors and moved_from:
+        # 曲が0件になった歌手を消す（名義・別表記・年表の好き度は CASCADE で一緒に消える）
+        Artist.objects.filter(pk__in=moved_from, songs__isnull=True).delete()
+
+    return saved
+
+
+def _missing_credits_filters(params):
+    """
+    GET パラメータからフィルタ値を取り出す。
+    パラメータ自体が無い（初回表示）ときは 邦楽 / オリジナル を既定にし、
+    「全て」は "all" で明示的に区別する。
+    """
+    return {
+        "region": params.get("region", "1"),
+        "cover": params.get("cover", "0"),
+        "artist": params.get("artist", "").strip(),
+        "title": params.get("title", "").strip(),
+    }
+
+
+def _render_missing_credits(request, page_number, params, posted=None):
+    filters = _missing_credits_filters(params)
+    qs = (
+        Song.objects.filter(
+            Q(lyricist__isnull=True)
+            | Q(lyricist="")
+            | Q(composer__isnull=True)
+            | Q(composer="")
+            | Q(year__isnull=True)
+        )
+        .select_related("artist", "credit")
+        .order_by("artist__name", "title", "id")
+    )
+    if filters["region"] != "all" and filters["region"].isdigit():
+        qs = qs.filter(artist__region_id=int(filters["region"]))
+    if filters["cover"] == "0":
+        qs = qs.filter(is_cover=False)
+    elif filters["cover"] == "1":
+        qs = qs.filter(is_cover=True)
+    if filters["artist"]:
+        # 別名義（桑田佳祐 など）でも引っかかるように名義名も見る
+        qs = qs.filter(
+            Q(artist__name__icontains=filters["artist"])
+            | Q(credit__name__icontains=filters["artist"])
+        )
+    if filters["title"]:
+        qs = qs.filter(title__icontains=filters["title"])
+
+    page = Paginator(qs, MISSING_CREDITS_PAGE_SIZE).get_page(page_number)
+
+    rows = []
+    for song in page.object_list:
+        if posted is not None:
+            # バリデーションエラー時は入力途中の値を戻す
+            title = posted.get(f"title_{song.id}", song.title)
+            artist_name = posted.get(f"artist_{song.id}", song.artist.name)
+            lyricist = posted.get(f"lyricist_{song.id}", "")
+            composer = posted.get(f"composer_{song.id}", "")
+            year = posted.get(f"year_{song.id}", "")
+        else:
+            title = song.title
+            artist_name = song.artist.name
+            lyricist = song.lyricist or ""
+            composer = song.composer or ""
+            year = "" if song.year is None else song.year
+        rows.append(
+            {
+                "song": song,
+                "title": title,
+                "artist_name": artist_name,
+                "lyricist": lyricist,
+                "composer": composer,
+                "year": year,
+                "google_q": f"{song.title} {song.credit.name} 作詞 作曲",
+            }
+        )
+
+    return render(
+        request,
+        "songs/missing_credits.html",
+        {
+            "page": page,
+            "rows": rows,
+            "total": page.paginator.count,
+            "filters": filters,
+            "regions": MusicRegion.objects.order_by("id"),
+            # ページ送り・保存後のリダイレクトでフィルタを引き継ぐためのクエリ文字列
+            "filter_qs": urlencode(filters),
+        },
+    )
+
+
+def _csv_cell(row, key):
+    """CSV のセル値。空欄と "NULL"（大文字小文字問わず）は None とみなす。"""
+    value = (row.get(key) or "").strip()
+    if not value or value.upper() == "NULL":
+        return None
+    return value
+
+
+def _decode_csv(raw):
+    """UTF-8（BOM 有無）→ Shift_JIS(cp932) の順に試す。Excel 保存の CSV 対策。"""
+    for enc in ("utf-8-sig", "cp932"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+@require_POST
+@login_required
+@user_passes_test(_is_superuser)
+def missing_credits_import_view(request):
+    """
+    CSV（列: Artist, Song, lyricist, composer, year）から作詞・作曲・年を埋める。
+
+    - Artist / Song が空の行、歌手名・曲名が完全一致する曲が無い行はスキップ
+    - 曲側で既に入力済みの項目は上書きしない（未入力の項目だけ埋める）
+    - CSV 側が空の項目は更新しない
+    完全一致は Python 側で比較する（MySQL の照合順序は大文字小文字などを区別しないため）。
+    """
+    filter_qs = request.POST.get("filter_qs", "")
+    back = f"{reverse('missing_credits')}?{filter_qs}"
+
+    upload = request.FILES.get("csv_file")
+    if not upload:
+        messages.error(request, "CSVファイルを選択してください。")
+        return redirect(back)
+
+    text = _decode_csv(upload.read())
+    if text is None:
+        messages.error(request, "CSVの文字コードを判別できませんでした（UTF-8 か Shift_JIS で保存してください）。")
+        return redirect(back)
+
+    reader = csv.DictReader(io.StringIO(text))
+    reader.fieldnames = [(f or "").strip() for f in (reader.fieldnames or [])]
+    if not {"Artist", "Song"} <= set(reader.fieldnames):
+        messages.error(request, "CSVの1行目に Artist, Song 列が必要です。")
+        return redirect(back)
+
+    rows = []
+    skipped_blank = 0
+    for line_no, row in enumerate(reader, start=2):
+        artist_name = _csv_cell(row, "Artist")
+        title = _csv_cell(row, "Song")
+        if not artist_name or not title:
+            skipped_blank += 1
+            continue
+        rows.append((line_no, artist_name, title, row))
+
+    # 曲名で候補をまとめて取ってきて、(歌手名, 曲名) の完全一致で引けるようにする
+    songs_by_key = defaultdict(list)
+    titles = list({t for _, _, t, _ in rows})
+    for i in range(0, len(titles), 500):
+        for song in Song.objects.filter(title__in=titles[i:i + 500]).select_related("artist"):
+            songs_by_key[(song.artist.name, song.title)].append(song)
+
+    not_found = []
+    bad_years = []
+    to_update = {}
+    for line_no, artist_name, title, row in rows:
+        songs = songs_by_key.get((artist_name, title))
+        if not songs:
+            not_found.append(f"{line_no}行目 {artist_name} / {title}")
+            continue
+
+        values = {
+            "lyricist": _csv_cell(row, "lyricist"),
+            "composer": _csv_cell(row, "composer"),
+        }
+        raw_year = _csv_cell(row, "year")
+        if raw_year is not None:
+            try:
+                values["year"] = int(raw_year)
+            except ValueError:
+                bad_years.append(f"{line_no}行目 {artist_name} / {title}：{raw_year}")
+
+        # 同名の歌手が地域違いで複数いる場合は、一致した曲すべてに入れる
+        for song in songs:
+            for field, value in values.items():
+                if value is None:
+                    continue
+                current = getattr(song, field)
+                if current is None or current == "":
+                    setattr(song, field, value)
+                    to_update[song.pk] = song
+
+    with transaction.atomic():
+        Song.objects.bulk_update(list(to_update.values()), ["lyricist", "composer", "year"], batch_size=500)
+
+    messages.success(
+        request,
+        f"CSVインポート：{len(to_update)}曲を更新しました"
+        f"（対象 {len(rows)}行 / 歌手名・曲名が空でスキップ {skipped_blank}行 / 該当なし {len(not_found)}行）",
+    )
+    if bad_years:
+        messages.error(request, "年が数値でないため年だけスキップ：" + "、".join(bad_years[:20])
+                       + (f" ほか{len(bad_years) - 20}件" if len(bad_years) > 20 else ""))
+    if not_found:
+        messages.warning(request, "該当なし：" + "、".join(not_found[:20])
+                         + (f" ほか{len(not_found) - 20}件" if len(not_found) > 20 else ""))
+    return redirect(back)
