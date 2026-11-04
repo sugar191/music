@@ -21,7 +21,7 @@ from django.db.models import (
     Min,
 )
 from django.db.models.functions import Coalesce, Lower
-from django.http import JsonResponse, QueryDict
+from django.http import HttpResponse, JsonResponse, QueryDict
 from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -2233,8 +2233,8 @@ def _missing_credits_filters(params):
     }
 
 
-def _render_missing_credits(request, page_number, params, posted=None):
-    filters = _missing_credits_filters(params)
+def _missing_credits_queryset(filters):
+    """未入力の曲ページの一覧（フィルタ適用後）。画面表示と CSV エクスポートで共用する。"""
     qs = (
         Song.objects.filter(
             Q(lyricist__isnull=True)
@@ -2260,7 +2260,12 @@ def _render_missing_credits(request, page_number, params, posted=None):
         )
     if filters["title"]:
         qs = qs.filter(title__icontains=filters["title"])
+    return qs
 
+
+def _render_missing_credits(request, page_number, params, posted=None):
+    filters = _missing_credits_filters(params)
+    qs = _missing_credits_queryset(filters)
     page = Paginator(qs, MISSING_CREDITS_PAGE_SIZE).get_page(page_number)
 
     rows = []
@@ -2485,3 +2490,32 @@ def missing_credits_fetch_view(request):
             "diagnostics": "\n".join(diag_lines),
         }
     )
+
+
+@login_required
+@user_passes_test(_is_superuser)
+def missing_credits_export_view(request):
+    """
+    未入力の曲ページの一覧（フィルタ適用後・全ページ分）を CSV で返す。
+    形式は CSV インポートと同じ（Artist, Song, lyricist, composer, year）。
+    全項目を "" で囲う。Excel でそのまま開けるよう UTF-8（BOM付き）にする。
+    """
+    filters = _missing_credits_filters(request.GET)
+    qs = _missing_credits_queryset(filters)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+    writer.writerow(["Artist", "Song", "lyricist", "composer", "year"])
+    for song in qs.iterator():
+        writer.writerow([
+            song.artist.name,
+            song.title,
+            song.lyricist or "",
+            song.composer or "",
+            "" if song.year is None else song.year,
+        ])
+
+    filename = f"missing_credits_{timezone.localtime():%Y%m%d_%H%M%S}.csv"
+    response = HttpResponse("\ufeff" + buf.getvalue(), content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response

@@ -19,6 +19,7 @@
   <input type="search" name="title" value="{{ filters.title }}" placeholder="曲名" style="width:9rem;">
   <button type="submit">絞り込み</button>
   <span>{{ total }}曲</span>
+  <a href="{% url 'missing_credits_export' %}?{{ filter_qs }}" title="この絞り込み結果（全ページ）をCSVでダウンロード"><i class="fa-solid fa-file-csv"></i> CSV</a>
   {% if page.paginator.num_pages > 1 %}
     <span>
       {% if page.has_previous %}<a href="?{{ filter_qs }}&page={{ page.previous_page_number }}">&laquo; 前</a>{% endif %}

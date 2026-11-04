@@ -34,3 +34,4 @@ Thumbs.db
 
 # 開発環境用
 /tools/
+/Claude outputs/

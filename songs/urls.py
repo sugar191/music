@@ -31,6 +31,7 @@ from .views import (
     missing_credits_view,
     missing_credits_import_view,
     missing_credits_fetch_view,
+    missing_credits_export_view,
 )
 from . import views_dump
 
@@ -70,6 +71,7 @@ urlpatterns = [
     path("manage/missing-credits/", missing_credits_view, name="missing_credits"),
     path("manage/missing-credits/import/", missing_credits_import_view, name="missing_credits_import"),
     path("manage/missing-credits/fetch/", missing_credits_fetch_view, name="missing_credits_fetch"),
+    path("manage/missing-credits/export/", missing_credits_export_view, name="missing_credits_export"),
     path(
         "artist_year_heatmap/",
         artist_year_heatmap_view,
