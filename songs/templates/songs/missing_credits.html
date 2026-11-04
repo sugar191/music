@@ -18,7 +18,7 @@
   <input type="search" name="artist" value="{{ filters.artist }}" placeholder="歌手名" style="width:9rem;">
   <input type="search" name="title" value="{{ filters.title }}" placeholder="曲名" style="width:9rem;">
   <button type="submit">絞り込み</button>
-  <span>{{ total }}曲</span>
+  <span><span id="missing-total">{{ total }}</span>曲</span>
   <a href="{% url 'missing_credits_export' %}?{{ filter_qs }}" title="この絞り込み結果（全ページ）をCSVでダウンロード"><i class="fa-solid fa-file-csv"></i> CSV</a>
   {% if page.paginator.num_pages > 1 %}
     <span>
@@ -57,7 +57,7 @@
     {% if rows %}
       <table class="missing-credits-table">
         <thead>
-          <tr><th>歌手</th><th>曲名</th><th>作詞</th><th>作曲</th><th>年</th><th></th><th></th><th>取得</th></tr>
+          <tr><th>歌手</th><th>曲名</th><th>作詞</th><th>作曲</th><th>年</th><th></th><th></th><th>取得</th><th></th></tr>
         </thead>
         <tbody>
           {% for r in rows %}
@@ -90,6 +90,12 @@
                   <i class="fa-solid fa-cloud-arrow-down"></i>
                 </a>
                 <small class="fetch-status"></small>
+              </td>
+              <td>
+                <button type="button" class="delete-btn" data-song-id="{{ r.song.id }}"
+                        data-label="{{ r.song.artist.name }} / {{ r.song.title }}" title="この曲を削除">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
               </td>
             </tr>
           {% endfor %}
@@ -222,6 +228,37 @@
         }
       });
 
+      // 削除（確認 → 削除 → 行を消す）。採点データも一緒に消える
+      const deleteUrl = "{% url 'missing_credits_delete' %}";
+      const totalEl = document.getElementById("missing-total");
+      form.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".delete-btn");
+        if (!btn) return;
+        const label = btn.dataset.label;
+        if (!confirm(`「${label}」を削除します。\nこの曲の採点データもすべて削除されます。\n（歌手の曲が0件になる場合は歌手も削除されます）\nよろしいですか？`)) return;
+
+        btn.disabled = true;
+        try {
+          const r = await fetch(deleteUrl, {
+            method: "POST",
+            headers: { "X-CSRFToken": csrfToken, "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ song_id: btn.dataset.songId }),
+          });
+          const d = await r.json();
+          if (!d.success) {
+            alert(d.error || "削除に失敗しました");
+            btn.disabled = false;
+            return;
+          }
+          btn.closest("tr").remove();  // hidden の song_id も消えるので保存対象から外れる
+          if (totalEl) totalEl.textContent = Math.max(0, parseInt(totalEl.textContent, 10) - 1);
+          updateButton();
+        } catch (err) {
+          alert("通信エラー");
+          btn.disabled = false;
+        }
+      });
+
       // エラー再表示時は入力値が復元されているので初期状態を反映
       form.querySelectorAll("tbody tr").forEach(refresh);
       updateButton();
@@ -242,5 +279,6 @@
     .missing-credits-table .edit-link { font-size: 0.8em; white-space: nowrap; }
     .missing-credits-table .fetch-cell { white-space: nowrap; }
     .missing-credits-table .fetch-status { cursor: help; }
+    .missing-credits-table .delete-btn { background: none; border: none; color: #c00; cursor: pointer; }
   </style>
 {% endblock %}

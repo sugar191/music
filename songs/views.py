@@ -2519,3 +2519,32 @@ def missing_credits_export_view(request):
     response = HttpResponse("\ufeff" + buf.getvalue(), content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+@require_POST
+@login_required
+@user_passes_test(_is_superuser)
+def missing_credits_delete_view(request):
+    """
+    曲を1件削除する。採点（Rating）は Rating.song の on_delete=CASCADE で一緒に消える。
+    （Django の ORM が消すので、DB 側の FK 制約の設定には依存しない）
+    その歌手の曲（カバー曲を含む）が0件になったら歌手も削除する。
+    """
+    try:
+        song = Song.objects.get(pk=int(request.POST.get("song_id", "")))
+    except (Song.DoesNotExist, ValueError):
+        return JsonResponse({"success": False, "error": "曲が存在しません"}, status=404)
+
+    artist_id = song.artist_id
+    with transaction.atomic():
+        _total, per_model = song.delete()
+        # 曲が0件になった歌手は消す（付け替え時と同じ扱い）。
+        # カバー曲も Song なので、カバー曲が残っていれば歌手は消えない。
+        artist_deleted, _ = Artist.objects.filter(pk=artist_id, songs__isnull=True).delete()
+    return JsonResponse(
+        {
+            "success": True,
+            "deleted_ratings": per_model.get("songs.Rating", 0),
+            "artist_deleted": bool(artist_deleted),
+        }
+    )
