@@ -2291,7 +2291,7 @@ def _render_missing_credits(request, page_number, params, posted=None):
                 "lyricist": lyricist,
                 "composer": composer,
                 "year": year,
-                "google_q": f"{song.title} {song.credit.name} 作詞 作曲",
+                "google_q": f"{song.title} {song.credit.name} 作詞 作曲 リリース日",
             }
         )
 
